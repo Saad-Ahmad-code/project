@@ -43,8 +43,9 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
       <button
         onClick={fetchNutrition}
         disabled={loading}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border-none cursor-pointer text-white disabled:cursor-wait disabled:opacity-50"
-        style={{ background: loading ? "#555" : "#2d6a4f" }}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border-none cursor-pointer text-white disabled:cursor-wait disabled:opacity-50 ${
+          loading ? "bg-muted" : "bg-emerald-700 hover:bg-emerald-600"
+        }`}
       >
         {loading ? "Looking up..." : expanded && results ? "Hide Nutrition" : "Nutrition"}
       </button>
@@ -56,8 +57,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="mt-2 p-3 rounded-lg border overflow-hidden"
-            style={{ background: "#1a2e1f", borderColor: "#2d6a4f" }}
+            className="mt-2 p-3 rounded-lg border border-emerald-700 bg-emerald-950/50 overflow-hidden"
           >
             {results.slice(0, 1).map((r, i) => (
               <div key={i}>
@@ -103,7 +103,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
                   )}
                 </div>
                 <div className="mt-1 text-[0.7rem] text-muted">
-                  per 100g &middot; via Open Food Facts
+                  per 100g &middot; via {r.source === 'usda' ? 'USDA Food Data Central' : 'Open Food Facts'}
                   {r.serving_size && ` \u00b7 serving: ${r.serving_size}`}
                 </div>
               </div>

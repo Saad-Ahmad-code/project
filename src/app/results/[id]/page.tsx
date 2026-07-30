@@ -128,8 +128,7 @@ export default function ResultsPage() {
       {!suggestionsLoading && !showSuggestions && (
         <Button
           onClick={getSuggestions}
-          className="w-full mb-6 font-bold"
-          style={{ background: "linear-gradient(135deg, #059669, #047857)" }}
+          className="w-full mb-6 font-bold bg-gradient-to-br from-emerald-600 to-emerald-700"
         >
           Ask AI Food Expert
         </Button>
@@ -156,8 +155,7 @@ export default function ResultsPage() {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="mb-6 rounded-xl p-5 border border-primary overflow-hidden"
-            style={{ background: "linear-gradient(135deg, #064e3b, #065f46)" }}
+            className="mb-6 rounded-xl p-5 border border-primary overflow-hidden bg-gradient-to-br from-emerald-900 to-emerald-800"
           >
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>

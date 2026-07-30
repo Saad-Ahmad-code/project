@@ -40,7 +40,7 @@ export function Navbar() {
         )}
 
         {status === "unauthenticated" && (
-          <Link href="/auth/login" className="text-sm text-primary hover:text-primary/80 transition-colors no-underline">
+          <Link href="/auth/login" className="inline-flex h-7 items-center justify-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium whitespace-nowrap transition-all hover:bg-muted hover:text-foreground active:translate-y-px no-underline text-muted">
             Login
           </Link>
         )}

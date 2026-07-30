@@ -262,8 +262,7 @@ export default function ScanPage() {
           {!suggestionsLoading && !showSuggestions && (
             <Button
               onClick={getSuggestions}
-              className="w-full mb-6 font-bold"
-              style={{ background: "linear-gradient(135deg, #059669, #047857)" }}
+              className="w-full mb-6 font-bold bg-gradient-to-br from-emerald-600 to-emerald-700"
             >
               Ask AI Food Expert
             </Button>
@@ -294,8 +293,7 @@ export default function ScanPage() {
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.3, ease: "easeOut" }}
-                className="mb-6 rounded-xl p-5 border border-primary overflow-hidden"
-                style={{ background: "linear-gradient(135deg, #064e3b, #065f46)" }}
+                className="mb-6 rounded-xl p-5 border border-primary overflow-hidden bg-gradient-to-br from-emerald-900 to-emerald-800"
               >
                 <div className="flex justify-between items-center mb-3">
                   <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
@@ -430,8 +428,7 @@ export default function ScanPage() {
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mt-3 p-4 rounded-lg border bg-surface"
-                style={{ borderColor: "#2d6a4f" }}
+                className="mt-3 p-4 rounded-lg border border-emerald-700 bg-surface"
               >
                 <div className="flex items-start gap-4">
                   {barcodeResult.image_url && (
