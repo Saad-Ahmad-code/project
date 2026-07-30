@@ -1,5 +1,5 @@
 /**
- * 🤖 Agent Health Endpoint (Admin Only)
+ * Agent Health Endpoint (Admin Only)
  *
  * Invisible to regular users — no frontend link, no public access.
  * Only authenticated admin users can view agent status.

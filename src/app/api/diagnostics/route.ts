@@ -1,5 +1,5 @@
 /**
- * 🩺 Health & Diagnostics API
+ * Health & Diagnostics API
  * GET /api/diagnostics — runs all checks
  * GET /api/diagnostics/log — shows recent errors
  * POST /api/diagnostics/report — log an error from the frontend

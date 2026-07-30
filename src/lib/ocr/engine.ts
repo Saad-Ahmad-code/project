@@ -1,5 +1,5 @@
 /**
- * 🧠 Multi-Layer OCR Engine
+ * Multi-Layer OCR Engine
  *
  * Tries 4 layers in sequence, falling through on failure:
  *   Layer 1 — Tesseract.js (pure JS/WASM, instant)

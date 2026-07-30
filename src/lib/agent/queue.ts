@@ -1,5 +1,5 @@
 /**
- * 🧠 Background Agent Job Queue
+ * Background Agent Job Queue
  *
  * Manages background enrichment jobs for scanned menus.
  * Jobs are stored in local JSON DB and processed asynchronously.

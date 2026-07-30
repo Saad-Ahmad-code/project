@@ -55,7 +55,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
           gap: "6px",
         }}
       >
-        {loading ? "🔍 Looking up..." : expanded && results ? "🥗 Hide Nutrition" : "🥗 Nutrition"}
+        {loading ? "Looking up..." : expanded && results ? "Hide Nutrition" : "Nutrition"}
       </button>
 
       {expanded && results && results.length > 0 && (
@@ -79,22 +79,22 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
               <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "#95d5b2" }}>{r.name}</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
                 {r.calories !== undefined && (
-                  <span>🔥 <strong>{r.calories}</strong> kcal</span>
+                  <span><strong>{r.calories}</strong> kcal</span>
                 )}
                 {r.protein_g !== undefined && (
-                  <span>🥩 <strong>{r.protein_g}g</strong> protein</span>
+                  <span><strong>{r.protein_g}g</strong> protein</span>
                 )}
                 {r.fat_g !== undefined && (
-                  <span>🧈 <strong>{r.fat_g}g</strong> fat</span>
+                  <span><strong>{r.fat_g}g</strong> fat</span>
                 )}
                 {r.carbs_g !== undefined && (
-                  <span>🍚 <strong>{r.carbs_g}g</strong> carbs</span>
+                  <span><strong>{r.carbs_g}g</strong> carbs</span>
                 )}
                 {r.fiber_g !== undefined && (
-                  <span>🌾 <strong>{r.fiber_g}g</strong> fiber</span>
+                  <span><strong>{r.fiber_g}g</strong> fiber</span>
                 )}
                 {r.sugars_g !== undefined && (
-                  <span>🍬 <strong>{r.sugars_g}g</strong> sugars</span>
+                  <span><strong>{r.sugars_g}g</strong> sugars</span>
                 )}
               </div>
               <div style={{ marginTop: "0.3rem", fontSize: "0.7rem", color: "#888" }}>

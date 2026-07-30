@@ -1,5 +1,5 @@
 /**
- * 🍽️ AI Food Expert Suggestions (Offline-compatible)
+ * AI Food Expert Suggestions (Offline-compatible)
  * POST /api/suggest
  * Body: { dishes: string[] }
  * Returns: Groq-powered food recommendations

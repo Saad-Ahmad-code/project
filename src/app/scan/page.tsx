@@ -4,6 +4,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useScan, LocalOCRItem } from "@/hooks/useScan";
 import { DishCard } from "@/components/dishes/DishCard";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ScanPage() {
   const router = useRouter();
@@ -105,8 +109,8 @@ export default function ScanPage() {
   const isScanning = status === "uploading" || status === "scanning" || status === "local_scanning";
 
   return (
-    <main style={{ maxWidth: 600, margin: "0 auto", padding: "2rem" }}>
-      <h1 style={{ marginBottom: "1rem" }}>Scan a Menu</h1>
+    <main className="max-w-2xl mx-auto p-8">
+      <h1 className="text-2xl font-bold mb-4">Scan a Menu</h1>
 
       {!image && (
         <div
@@ -139,77 +143,42 @@ export default function ScanPage() {
       )}
 
       {image && !isScanning && status !== "complete" && (
-        <div style={{ marginBottom: "1rem" }}>
-          <img src={preview!} alt="Menu preview" style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 8, marginBottom: "1rem" }} />
-          <div style={{ display: "flex", gap: "0.75rem" }}>
-            <button
-              onClick={handleScan}
-              style={{
-                flex: 1,
-                padding: "0.75rem",
-                background: "#2563eb",
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                fontSize: "1rem",
-                cursor: "pointer",
-              }}
-            >
+        <div className="mb-4">
+          <img src={preview!} alt="Menu preview" className="w-full max-h-[300px] rounded-lg mb-4 object-contain" />
+          <div className="flex gap-3">
+            <Button onClick={handleScan} className="flex-1">
               Scan with AI
-            </button>
-            <button
-              onClick={handleLocalScan}
-              style={{
-                flex: 1,
-                padding: "0.75rem",
-                background: "#1f2937",
-                color: "#e0e0e0",
-                border: "1px solid #444",
-                borderRadius: 8,
-                fontSize: "1rem",
-                cursor: "pointer",
-              }}
-            >
+            </Button>
+            <Button onClick={handleLocalScan} variant="outline" className="flex-1">
               Scan Offline
-            </button>
+            </Button>
           </div>
-          <button
+          <Button
             onClick={handleScanAnother}
-            style={{
-              marginTop: "0.75rem",
-              width: "100%",
-              padding: "0.5rem",
-              background: "transparent",
-              color: "#666",
-              border: "none",
-              borderRadius: 8,
-              fontSize: "0.9rem",
-              cursor: "pointer",
-            }}
+            variant="ghost"
+            className="w-full mt-3 text-muted"
           >
             Choose different image
-          </button>
+          </Button>
         </div>
       )}
 
       {(isScanning || status === "complete") && (
-        <div style={{ marginBottom: "1rem" }}>
-          <div style={{ height: 8, background: "#222", borderRadius: 4, overflow: "hidden", marginBottom: "0.5rem" }}>
-            <div style={{ height: "100%", width: `${progress}%`, background: "#2563eb", transition: "width 0.3s" }} />
-          </div>
-          <p style={{ color: "#999", fontSize: "0.9rem" }}>
+        <div className="mb-4">
+          <Progress value={progress} className="h-2 mb-2" />
+          <p className="text-sm text-muted">
             {status === "local_scanning" ? "Running local OCR (this may take a minute)..." : status}
           </p>
         </div>
       )}
 
       {error && (
-        <div style={{ marginBottom: "1rem", padding: "0.75rem", background: "#2d1b1b", border: "1px solid #5c2a2a", borderRadius: 8, color: "#f87171" }}>
+        <div className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800 text-red-400 text-sm">
           {error}
           {status === "error" && image && (
             <button
               onClick={handleLocalScan}
-              style={{ display: "block", marginTop: "0.75rem", padding: "0.5rem 1rem", background: "#1f2937", color: "#e0e0e0", border: "1px solid #444", borderRadius: 6, cursor: "pointer" }}
+              className="block mt-3 px-4 py-2 rounded-lg bg-surface text-sm text-muted border border-border cursor-pointer"
             >
               Retry with Local OCR
             </button>
@@ -219,56 +188,46 @@ export default function ScanPage() {
 
       {status === "complete" && localItems.length > 0 && (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <div className="flex justify-between items-center mb-4">
             <div>
-              <h2 style={{ margin: 0 }}>{localMenuName}</h2>
-              <p style={{ color: "#999", fontSize: "0.9rem", margin: 0 }}>{localItems.length} dishes found (offline)</p>
+              <h2 className="text-xl font-semibold">{localMenuName}</h2>
+              <p className="text-sm text-muted">{localItems.length} dishes found (offline)</p>
             </div>
-            <button
-              onClick={handleScanAnother}
-              style={{ padding: "0.5rem 1rem", background: "#333", color: "#e0e0e0", border: "none", borderRadius: 6, cursor: "pointer" }}
-            >
+            <Button onClick={handleScanAnother} variant="outline" size="sm">
               New Scan
-            </button>
+            </Button>
           </div>
 
           {/* AI Food Expert Button */}
           {!suggestionsLoading && !showSuggestions && (
-            <button
+            <Button
               onClick={getSuggestions}
-              style={{
-                width: "100%", padding: "0.75rem", marginBottom: "1.5rem",
-                background: "linear-gradient(135deg, #059669, #047857)",
-                color: "#fff", border: "none", borderRadius: 8, fontSize: "1rem",
-                cursor: "pointer", fontWeight: "bold",
-              }}
+              className="w-full mb-6 font-bold"
+              style={{ background: "linear-gradient(135deg, #059669, #047857)" }}
             >
-              🤖 Ask AI Food Expert
-            </button>
+              Ask AI Food Expert
+            </Button>
           )}
 
           {suggestionsLoading && (
-            <div style={{ marginBottom: "1.5rem", padding: "1rem", background: "#111", borderRadius: 8, textAlign: "center" }}>
-              <div style={{ height: 6, background: "#222", borderRadius: 3, overflow: "hidden", marginBottom: "0.5rem" }}>
-                <div style={{ height: "100%", width: "60%", background: "#059669", borderRadius: 3, animation: "pulse 1.5s infinite" }} />
-              </div>
-              <p style={{ color: "#999", fontSize: "0.9rem" }}>🍽️ AI Food Expert is analyzing your menu...</p>
-              <style>{`@keyframes pulse { 50% { opacity: 0.5; } }`}</style>
+            <div className="mb-6 p-4 bg-surface rounded-lg text-center">
+              <Progress value={60} className="h-1.5 mb-2" />
+              <p className="text-sm text-muted">AI Food Expert is analyzing your menu...</p>
             </div>
           )}
 
           {suggestionsError && !suggestionsLoading && (
-            <div style={{ marginBottom: "1rem", padding: "0.75rem", background: "#2d1b1b", border: "1px solid #5c2a2a", borderRadius: 8, color: "#f87171" }}>
+            <div className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800 text-red-400 text-sm">
               {suggestionsError}
             </div>
           )}
 
           {/* AI Food Expert Suggestions Panel */}
           {showSuggestions && suggestions && (
-            <div style={{ marginBottom: "1.5rem", background: "linear-gradient(135deg, #064e3b, #065f46)", borderRadius: 12, padding: "1.25rem", border: "1px solid #059669" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                <h2 style={{ margin: 0, fontSize: "1.2rem" }}>🤖 AI Food Expert</h2>
-                <button onClick={() => setShowSuggestions(false)} style={{ background: "transparent", color: "#999", border: "none", cursor: "pointer", fontSize: "0.9rem" }}>Hide</button>
+            <div className="mb-6 rounded-xl p-5 border border-primary" style={{ background: "linear-gradient(135deg, #064e3b, #065f46)" }}>
+              <div className="flex justify-between items-center mb-3">
+                <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
+                <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted bg-transparent border-none cursor-pointer">Hide</button>
               </div>
 
               {suggestions.overview && (
@@ -277,19 +236,19 @@ export default function ScanPage() {
 
               {suggestions.must_try && (
                 <div style={{ background: "rgba(255,255,255,0.1)", borderRadius: 8, padding: "0.75rem", marginBottom: "1rem" }}>
-                  <span style={{ color: "#fcd34d", fontWeight: "bold", fontSize: "0.85rem", display: "block", marginBottom: "0.25rem" }}>⭐ MUST TRY</span>
+                  <span style={{ color: "#fcd34d", fontWeight: "bold", fontSize: "0.85rem", display: "block", marginBottom: "0.25rem" }}>MUST TRY</span>
                   <span style={{ color: "#fff", fontSize: "1.1rem", fontWeight: "bold" }}>{suggestions.must_try}</span>
                 </div>
               )}
 
               {suggestions.top_picks && suggestions.top_picks.length > 0 && (
                 <div style={{ marginBottom: "1rem" }}>
-                  <p style={{ color: "#a7f3d0", fontWeight: "bold", marginBottom: "0.5rem", fontSize: "0.9rem" }}>🏆 TOP PICKS</p>
+                  <p style={{ color: "#a7f3d0", fontWeight: "bold", marginBottom: "0.5rem", fontSize: "0.9rem" }}>TOP PICKS</p>
                   {suggestions.top_picks.map((pick: any, i: number) => (
                     <div key={i} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "0.6rem", marginBottom: "0.4rem" }}>
                       <p style={{ color: "#fff", fontWeight: "bold", marginBottom: "0.2rem" }}>{pick.name}</p>
                       <p style={{ color: "#d1fae5", fontSize: "0.85rem", marginBottom: pick.pairing ? "0.15rem" : 0 }}>{pick.reason}</p>
-                      {pick.pairing && <p style={{ color: "#fcd34d", fontSize: "0.8rem" }}>🍷 {pick.pairing}</p>}
+                      {pick.pairing && <p style={{ color: "#fcd34d", fontSize: "0.8rem" }}>{pick.pairing}</p>}
                     </div>
                   ))}
                 </div>
@@ -297,7 +256,7 @@ export default function ScanPage() {
 
               {suggestions.tips && suggestions.tips.length > 0 && (
                 <div>
-                  <p style={{ color: "#a7f3d0", fontWeight: "bold", marginBottom: "0.5rem", fontSize: "0.9rem" }}>💡 TIPS</p>
+                  <p style={{ color: "#a7f3d0", fontWeight: "bold", marginBottom: "0.5rem", fontSize: "0.9rem" }}>TIPS</p>
                   {suggestions.tips.map((tip: string, i: number) => (
                     <p key={i} style={{ color: "#d1fae5", fontSize: "0.85rem", marginBottom: "0.3rem", paddingLeft: "1rem" }}>• {tip}</p>
                   ))}
@@ -308,7 +267,7 @@ export default function ScanPage() {
                 onClick={getSuggestions}
                 style={{ marginTop: "0.75rem", width: "100%", padding: "0.5rem", background: "rgba(255,255,255,0.1)", color: "#d1fae5", border: "1px solid #059669", borderRadius: 6, cursor: "pointer", fontSize: "0.85rem" }}
               >
-                🔄 Regenerate Suggestions
+                Regenerate Suggestions
               </button>
             </div>
           )}
@@ -362,37 +321,26 @@ function LocalDishItem({ item }: { item: LocalOCRItem }) {
         <p style={{ color: "#555", fontSize: "0.8rem", marginTop: "0.4rem" }}>Tap to see more photos</p>
       </div>
 
-      {showImages && (
-        <div
-          onClick={() => setShowImages(false)}
-          style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 50,
-            display: "flex", justifyContent: "center", alignItems: "center", padding: "2rem",
-          }}
+      <Dialog open={showImages} onOpenChange={(open) => { if (!open) setShowImages(false); }}>
+        <DialogContent
+          className="sm:max-w-2xl max-h-[80vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "#111", borderRadius: 12, padding: "1.5rem", maxWidth: 600, width: "100%", maxHeight: "80vh", overflowY: "auto" }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <h2 style={{ margin: 0 }}>{item.name}</h2>
-              <button onClick={() => setShowImages(false)} style={{ background: "#333", color: "#fff", border: "none", padding: "0.4rem 0.9rem", borderRadius: 6, cursor: "pointer" }}>Close</button>
-            </div>
+          <DialogTitle className="text-lg font-semibold mb-2">{item.name}</DialogTitle>
 
-            {loadingImages && <p style={{ color: "#666" }}>Loading photos...</p>}
+          {loadingImages && <p className="text-sm text-muted">Loading photos...</p>}
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.75rem" }}>
-              {moreImages.map((img) => (
-                <img key={img.url} src={img.url} alt={item.name} style={{ width: "100%", borderRadius: 8 }} />
-              ))}
-            </div>
-
-            {!loadingImages && moreImages.length === 0 && (
-              <p style={{ color: "#666" }}>No photos found for this dish.</p>
-            )}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {moreImages.map((img) => (
+              <img key={img.url} src={img.url} alt={item.name} className="w-full rounded-lg" />
+            ))}
           </div>
-        </div>
-      )}
+
+          {!loadingImages && moreImages.length === 0 && (
+            <p className="text-sm text-muted">No photos found for this dish.</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

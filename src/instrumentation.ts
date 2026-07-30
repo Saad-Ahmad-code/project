@@ -7,5 +7,5 @@ export async function register() {
   // Dynamic import ensures webpack doesn't trace into mongodb.ts at build time
   const { connectToDatabase } = await require('./lib/mongodb');
   await connectToDatabase();
-  console.log('📦 MenuLens: Local storage ready (no MongoDB)');
+  console.log('MenuLens: Local storage ready (no MongoDB)');
 }

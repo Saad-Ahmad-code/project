@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface DishCardProps {
   id: string;
@@ -18,29 +20,33 @@ export function DishCard({ id, name, description, price, category, image_url, co
   const [imageError, setImageError] = useState(false);
 
   return (
-    <div style={{ background: "#111", borderRadius: 12, padding: "1rem", display: "flex", gap: "1rem" }}>
+    <Card className="flex flex-row gap-4 p-4">
       {image_url && !imageError && (
         <img
           src={image_url}
           alt={name}
           loading="lazy"
           onError={() => setImageError(true)}
-          style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 8, flexShrink: 0 }}
+          className="w-[120px] h-[120px] object-cover rounded-lg shrink-0"
         />
       )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h3 style={{ marginBottom: "0.25rem" }}>{name}</h3>
-        {description && <p style={{ color: "#999", fontSize: "0.9rem", marginBottom: "0.25rem" }}>{description}</p>}
-        {ai_description && <p style={{ color: "#666", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{ai_description}</p>}
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-          {price !== undefined && <span style={{ color: "#4ade80", fontWeight: "bold" }}>${price.toFixed(2)}</span>}
-          {category && <span style={{ background: "#1f2937", padding: "0.15rem 0.5rem", borderRadius: 4, fontSize: "0.8rem", color: "#999" }}>{category}</span>}
+      <div className="flex-1 min-w-0 space-y-1">
+        <h3 className="text-base font-semibold">{name}</h3>
+        {description && <p className="text-sm text-muted">{description}</p>}
+        {ai_description && <p className="text-xs text-muted/70">{ai_description}</p>}
+        <div className="flex gap-2 items-center flex-wrap">
+          {price !== undefined && (
+            <span className="text-accent font-bold text-sm">${price.toFixed(2)}</span>
+          )}
+          {category && (
+            <Badge variant="outline" className="text-xs">{category}</Badge>
+          )}
           {dietary_tags?.length ? dietary_tags.map((tag) => (
-            <span key={tag} style={{ background: "#1a2e1a", padding: "0.15rem 0.5rem", borderRadius: 4, fontSize: "0.8rem", color: "#4ade80" }}>{tag}</span>
+            <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
           )) : null}
-          <span style={{ fontSize: "0.8rem", color: "#666" }}>{(confidence * 100).toFixed(0)}% match</span>
+          <span className="text-xs text-muted">{(confidence * 100).toFixed(0)}% match</span>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

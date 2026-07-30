@@ -2,38 +2,47 @@
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function Navbar() {
   const { data: session, status } = useSession();
 
   return (
-    <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 2rem", borderBottom: "1px solid #222" }}>
-      <Link href="/" style={{ fontSize: "1.25rem", fontWeight: "bold", color: "#fff", textDecoration: "none" }}>
+    <nav className="flex items-center justify-between px-8 py-4 border-b border-border">
+      <Link href="/" className="text-xl font-bold text-white no-underline">
         MenuLens
       </Link>
 
-      <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
-        <Link href="/scan" style={{ color: "#e0e0e0", textDecoration: "none", fontSize: "0.95rem" }}>Scan</Link>
-        <Link href="/history" style={{ color: "#e0e0e0", textDecoration: "none", fontSize: "0.95rem" }}>History</Link>
+      <div className="flex gap-6 items-center">
+        <Link href="/scan" className="text-sm text-muted hover:text-white transition-colors no-underline">
+          Scan
+        </Link>
+        <Link href="/history" className="text-sm text-muted hover:text-white transition-colors no-underline">
+          History
+        </Link>
 
         {status === "loading" && (
-          <span style={{ color: "#666", fontSize: "0.9rem" }}>Loading...</span>
+          <Skeleton className="h-4 w-20" />
         )}
 
         {status === "authenticated" && (
           <>
-            <span style={{ color: "#999", fontSize: "0.9rem" }}>{session?.user?.email}</span>
-            <button
+            <span className="text-sm text-muted">{session?.user?.email}</span>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => signOut({ callbackUrl: "/" })}
-              style={{ background: "#333", color: "#e0e0e0", border: "none", padding: "0.4rem 0.9rem", borderRadius: 6, fontSize: "0.9rem", cursor: "pointer" }}
             >
               Logout
-            </button>
+            </Button>
           </>
         )}
 
         {status === "unauthenticated" && (
-          <Link href="/auth/login" style={{ color: "#60a5fa", textDecoration: "none", fontSize: "0.9rem" }}>Login</Link>
+          <Link href="/auth/login" className="text-sm text-primary hover:text-primary/80 transition-colors no-underline">
+            Login
+          </Link>
         )}
       </div>
     </nav>

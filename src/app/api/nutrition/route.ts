@@ -1,5 +1,5 @@
 /**
- * 🥗 Nutrition API — Open Food Facts Integration
+ * Nutrition API — Open Food Facts Integration
  *
  * Free, open food database. No API key needed.
  * Queries Open Food Facts by dish name and returns structured nutrition data.

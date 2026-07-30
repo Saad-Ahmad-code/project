@@ -1,5 +1,5 @@
 /**
- * 🩺 Auto-Diagnostic Error Handler
+ * Auto-Diagnostic Error Handler
  *
  * Automatically detects, diagnoses, and attempts to fix common errors.
  * Exposes a health endpoint and logging system.

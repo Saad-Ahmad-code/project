@@ -1,5 +1,5 @@
 /**
- * 📸 Scan Endpoint — Multi-Layer OCR + Background Agent Enrichment
+ * Scan Endpoint — Multi-Layer OCR + Background Agent Enrichment
  *
  * 1. Receives image via multipart form
  * 2. Runs multi-layer OCR pipeline (Tesseract.js → Sharp → Python → AI Vision)
