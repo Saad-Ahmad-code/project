@@ -108,6 +108,54 @@ function setCache(key: string, data: NutritionResult[]) {
   cache.set(key, { data, ts: Date.now() });
 }
 
+const USDA_SEARCH_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
+
+interface USDAFood {
+  description: string;
+  foodNutrients: { nutrientName: string; value: number }[];
+  servingSize?: number;
+  servingSizeUnit?: string;
+  foodCategory?: string;
+}
+
+async function searchUSDA(query: string): Promise<NutritionResult[]> {
+  const apiKey = process.env.USDA_API_KEY || 'DEMO_KEY';
+  try {
+    const res = await fetch(
+      `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}&pageSize=5`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.foods || []).slice(0, 5).map((f: USDAFood) => {
+      const nutrients: Record<string, number> = {};
+      (f.foodNutrients || []).forEach((n) => {
+        const name = n.nutrientName?.toLowerCase() || '';
+        if (name.includes('energy')) nutrients.calories = Math.round(n.value);
+        if (name.includes('protein')) nutrients.protein = Math.round(n.value * 10) / 10;
+        if (name.includes('total fat')) nutrients.fat = Math.round(n.value * 10) / 10;
+        if (name.includes('carbohydrate')) nutrients.carbs = Math.round(n.value * 10) / 10;
+        if (name.includes('fiber')) nutrients.fiber = Math.round(n.value * 10) / 10;
+        if (name.includes('sugars')) nutrients.sugars = Math.round(n.value * 10) / 10;
+      });
+      const result: NutritionResult = {
+        name: f.description || query,
+        calories: nutrients.calories,
+        protein_g: nutrients.protein,
+        fat_g: nutrients.fat,
+        carbs_g: nutrients.carbs,
+        fiber_g: nutrients.fiber,
+        sugars_g: nutrients.sugars,
+        source: 'usda',
+      };
+      result.nutri_score = calculateNutriScore(result);
+      return result;
+    });
+  } catch {
+    return [];
+  }
+}
+
 function stripFoodDescription(name: string): string {
   // Remove common descriptors to get base food name for search
   return name
@@ -204,6 +252,16 @@ export async function POST(request: NextRequest) {
       result.nutri_score = calculateNutriScore(result);
       return result;
     });
+
+    // Fallback: if OFF returned nothing, try USDA Food Data Central
+    if (results.length === 0) {
+      logger.info(`[Nutrition] No OFF results for "${searchTerm}", trying USDA...`);
+      const usdaResults = await searchUSDA(searchTerm);
+      if (usdaResults.length > 0) {
+        setCache(cacheKey, usdaResults);
+        return Response.json({ dish_name: dishName, results: usdaResults, cached: false, source: 'usda' });
+      }
+    }
 
     // Cache results
     setCache(cacheKey, results);
