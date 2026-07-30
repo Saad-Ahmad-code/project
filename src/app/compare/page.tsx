@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,9 +18,10 @@ interface ComparisonData {
   dishes: DishComparison[];
 }
 
-export default function ComparePage() {
-  const [scanId, setScanId] = useState("");
-  const [targetId, setTargetId] = useState("");
+function CompareForm() {
+  const searchParams = useSearchParams();
+  const [scanId, setScanId] = useState(searchParams.get("a") || "");
+  const [targetId, setTargetId] = useState(searchParams.get("b") || "");
   const [data, setData] = useState<ComparisonData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -45,9 +47,7 @@ export default function ComparePage() {
   };
 
   return (
-    <main className="max-w-3xl mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-6">Compare Scans</h1>
-
+    <>
       <div className="flex gap-3 mb-4">
         <Input
           placeholder="Scan ID 1"
@@ -59,7 +59,7 @@ export default function ComparePage() {
           value={targetId}
           onChange={(e) => setTargetId(e.target.value)}
         />
-        <Button onClick={handleCompare} disabled={loading}>
+        <Button onClick={handleCompare} disabled={loading || !scanId || !targetId}>
           {loading ? "Loading..." : "Compare"}
         </Button>
       </div>
@@ -89,6 +89,22 @@ export default function ComparePage() {
           </CardContent>
         </Card>
       )}
+    </>
+  );
+}
+
+export default function ComparePage() {
+  return (
+    <main className="max-w-3xl mx-auto p-8 min-h-screen">
+      <h1 className="text-2xl font-bold mb-2">Compare Scans</h1>
+      <p className="text-sm text-muted mb-6">
+        Enter two scan IDs to compare their dishes side by side. You can find scan IDs in the{" "}
+        <Link href="/history" className="text-primary underline underline-offset-2">History</Link> page.
+      </p>
+
+      <Suspense fallback={<div className="text-sm text-muted">Loading...</div>}>
+        <CompareForm />
+      </Suspense>
     </main>
   );
 }

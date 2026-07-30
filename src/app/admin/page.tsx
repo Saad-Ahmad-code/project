@@ -46,19 +46,26 @@ interface Stats {
 export default function AdminPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<Stats | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (session) {
+      setStatsError(null);
       fetch("/api/admin/stats")
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
         .then(setStats)
-        .catch(() => {});
+        .catch((err) => {
+          setStatsError(err.message || "Failed to load stats");
+        });
     }
   }, [session]);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   if (!session) {
@@ -95,6 +102,10 @@ export default function AdminPage() {
           <StatCard label="Total Scans" value={stats.totalScans} />
           <StatCard label="Total Dishes" value={stats.totalDishes} />
           <StatCard label="Completed" value={stats.completedScans} />
+        </div>
+      ) : statsError ? (
+        <div className="p-4 rounded-lg bg-red-950 border border-red-800 text-red-400 text-sm">
+          Failed to load stats: {statsError}
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-4">

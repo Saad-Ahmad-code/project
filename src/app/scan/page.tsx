@@ -19,6 +19,7 @@ export default function ScanPage() {
   const {
     progress,
     status,
+    statusMessage,
     resultId,
     error,
     localItems,
@@ -43,10 +44,6 @@ export default function ScanPage() {
   const [barcodeResult, setBarcodeResult] = useState<{ name: string; calories?: number; protein_g?: number; fat_g?: number; carbs_g?: number; sugars_g?: number; image_url?: string; nutri_score?: string } | null>(null);
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (preview) URL.revokeObjectURL(preview);
-  }, [preview]);
 
   useEffect(() => {
     if (resultId && status === "complete" && localItems.length === 0) {
@@ -116,6 +113,16 @@ export default function ScanPage() {
     setImage(null);
     setPreview(null);
     reset();
+    // Clear AI suggestions & translation & barcode state
+    setSuggestions(null);
+    setSuggestionsLoading(false);
+    setSuggestionsError(null);
+    setShowSuggestions(false);
+    setTranslatedText(null);
+    setShowTranslated(false);
+    setBarcodeResult(null);
+    setBarcodeError(null);
+    setShowBarcodeScanner(false);
   };
 
   const translateMenu = async () => {
@@ -143,7 +150,7 @@ export default function ScanPage() {
 
   const isScanning = status === "uploading" || status === "scanning" || status === "local_scanning";
 
-  const handleBarcodeDetected = async (barcode: string) => {
+  const handleBarcodeDetected = useCallback(async (barcode: string) => {
     setShowBarcodeScanner(false);
     setBarcodeLoading(true);
     setBarcodeError(null);
@@ -165,10 +172,10 @@ export default function ScanPage() {
     } finally {
       setBarcodeLoading(false);
     }
-  };
+  }, []);
 
   return (
-    <main className="max-w-2xl mx-auto p-8">
+    <main className="max-w-2xl mx-auto p-8 min-h-screen">
       <h1 className="text-2xl font-bold mb-4">Scan a Menu</h1>
 
       {!image && (
@@ -222,7 +229,9 @@ export default function ScanPage() {
         <div className="mb-4">
           <Progress value={progress} className="h-2 mb-2" />
           <p className="text-sm text-muted">
-            {status === "local_scanning" ? "Running local OCR (this may take a minute)..." : status}
+            {status === "local_scanning"
+              ? "Running local OCR (this may take a minute)..."
+              : statusMessage || status}
           </p>
         </div>
       )}
@@ -374,7 +383,7 @@ export default function ScanPage() {
               variant="outline"
               size="sm"
             >
-              {translating ? "Translating..." : showTranslated ? "Translate" : "Translate"}
+              {translating ? "Translating..." : showTranslated ? "Show Original" : "Translate"}
             </Button>
             {showTranslated && translatedText && (
               <button

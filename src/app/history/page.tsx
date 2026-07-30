@@ -30,7 +30,7 @@ export default function HistoryPage() {
 
   if (loading) {
     return (
-      <main className="max-w-3xl mx-auto p-8">
+      <main className="max-w-3xl mx-auto p-8 min-h-screen">
         <Skeleton className="h-8 w-48 mb-6" />
         <div className="space-y-3">
           <Skeleton className="h-10 w-full" />
@@ -42,7 +42,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <main className="max-w-3xl mx-auto p-8">
+    <main className="max-w-3xl mx-auto p-8 min-h-screen">
       <h1 className="text-2xl font-bold mb-6">Scan History</h1>
 
       {error && (
@@ -71,7 +71,7 @@ export default function HistoryPage() {
               <TableHead>Date</TableHead>
               <TableHead>Items</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">View</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -93,9 +93,12 @@ export default function HistoryPage() {
                     {scan.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right flex gap-2 justify-end">
                   <Link href={`/results/${scan.id}`} className="text-sm text-primary hover:text-primary/80 transition-colors">
                     View
+                  </Link>
+                  <Link href={`/compare?a=${scan.id}`} className="text-sm text-muted hover:text-primary transition-colors">
+                    Compare
                   </Link>
                 </TableCell>
               </TableRow>

@@ -12,13 +12,15 @@ import { logger } from '@/lib/logger';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth/options';
 import { db, storage } from '@/lib/storage';
-import { getDatabase } from '@/lib/mongodb';
 import { enqueueAndProcessInBackground } from '@/lib/agent/queue';
 import type { MenuItem } from '@/types/menu';
 import type { OCRItem } from '@/lib/ocr/engine';
 
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW = 60 * 1000;
+
+// In-memory rate limit store (no MongoDB dependency)
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 function getClientIp(request: NextRequest): string {
   return (
@@ -28,24 +30,15 @@ function getClientIp(request: NextRequest): string {
   );
 }
 
-async function checkRateLimit(ip: string): Promise<boolean> {
-  try {
-    const now = Date.now();
-    const windowStart = new Date(now - RATE_LIMIT_WINDOW);
-    const database = await getDatabase();
-    const rateLimits = database.collection('rate_limits');
-
-    const result = await rateLimits.findOneAndUpdate(
-      { ip, created_at: { $gte: windowStart.toISOString() } },
-      { $inc: { count: 1 }, $setOnInsert: { created_at: new Date().toISOString(), expires_at: new Date(now + RATE_LIMIT_WINDOW).toISOString() } },
-      { upsert: true, returnDocument: 'after' }
-    );
-
-    if (!result?.value) return true;
-    return (result.value.count || 0) <= RATE_LIMIT_MAX;
-  } catch {
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitStore.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
     return true;
   }
+  entry.count += 1;
+  return entry.count <= RATE_LIMIT_MAX;
 }
 
 function sseEncode(event: string, data: unknown): string {
@@ -57,7 +50,7 @@ export async function POST(request: NextRequest) {
     const session = await getServerSession(authOptions);
     const ip = getClientIp(request);
 
-    if (!(await checkRateLimit(ip))) {
+    if (!checkRateLimit(ip)) {
       return new Response(sseEncode('error', { message: 'Too many scans. Wait a minute and try again.' }), {
         status: 429,
         headers: { 'Content-Type': 'text/event-stream' },
@@ -131,14 +124,6 @@ export async function POST(request: NextRequest) {
             scan_id: scanId,
             created_at: new Date().toISOString(),
           }));
-
-          // Persist dishes
-          try {
-            const database = await getDatabase();
-            await database.collection('dishes').insertMany(items);
-          } catch {
-            logger.warn('Failed to persist dishes, continuing without DB');
-          }
 
           send('status', {
             status: 'saved',
