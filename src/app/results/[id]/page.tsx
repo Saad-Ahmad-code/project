@@ -62,6 +62,7 @@ export default function ResultsPage() {
       setMoreImages(data.images || []);
     } catch {
       setMoreImages([]);
+      toast.error("Failed to load images");
     } finally {
       setLoadingImages(false);
     }
@@ -177,9 +178,10 @@ export default function ResultsPage() {
       <AnimatePresence>
         {showSuggestions && suggestions && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
+            key="suggestions"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
             className="mb-6 rounded-xl p-5 border border-primary overflow-hidden bg-gradient-to-br from-emerald-900 to-emerald-800"
           >

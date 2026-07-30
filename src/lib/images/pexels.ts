@@ -8,7 +8,7 @@ export async function searchPexels(query: string): Promise<{ url: string; source
   try {
     const res = await fetch(
       `https://api.pexels.com/v1/search?query=${encodeURIComponent(query + " food")}&per_page=5`,
-      { headers: { Authorization: apiKey } }
+      { headers: { Authorization: `${apiKey}` } }
     );
 
     if (!res.ok) {

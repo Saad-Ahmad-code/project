@@ -152,7 +152,7 @@ export default function ScanPage() {
         setShowTranslated(true);
       }
     } catch {
-      // silently fail — translation is a bonus feature
+      toast.error("Translation failed");
     } finally {
       setTranslating(false);
     }
