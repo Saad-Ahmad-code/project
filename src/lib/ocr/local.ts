@@ -1404,18 +1404,87 @@ function crossValidate(items: LocalOCRItem[]): LocalOCRItem[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  MAIN ENTRY POINT
+//  MAIN ENTRY POINT — with Sharp preprocessing + multi-PSM
 // ═══════════════════════════════════════════════════════════════════
+
+async function tryTesseractOnBuffer(
+  buffer: Buffer,
+  psm: number
+): Promise<{ data: any; wordCount: number; alphaWordCount: number }> {
+  const result = await Tesseract.recognize(buffer, "eng", {
+    tessedit_pageseg_mode: String(psm),
+    logger: () => {},
+  } as any);
+  const text = (result.data.text || "").trim();
+  const words = text.split(/\s+/).filter((w: string) => w.length > 2);
+  const alphaWords = words.filter((w: string) => /[a-zA-Z]{3,}/.test(w));
+  return {
+    data: result.data,
+    wordCount: words.length,
+    alphaWordCount: alphaWords.length,
+  };
+}
+
+function getBestResult(results: Array<{ data: any; wordCount: number; alphaWordCount: number }>): any {
+  let best = results[0];
+  let bestScore = -1;
+  for (const r of results) {
+    // Score: prefer alpha words (real text) with a minimum threshold
+    const score = r.alphaWordCount * 10 + r.wordCount;
+    if (score > bestScore && r.alphaWordCount >= 3) {
+      bestScore = score;
+      best = r;
+    }
+  }
+  return best.data;
+}
 
 export async function runLocalOCR(
   file: File
 ): Promise<{ raw_text: string; items: LocalOCRItem[] }> {
-  const result = await Tesseract.recognize(file, "eng", {
-    logger: () => {},
-  });
+  let resultData: any;
 
-  const raw_text = result.data.text || "";
-  const rawWords: any[] = (result.data as any).words || [];
+  try {
+    // ── Step 1: Read file into buffer ──
+    const arrayBuffer = await file.arrayBuffer();
+    const inputBuffer = Buffer.from(arrayBuffer);
+
+    // ── Step 2: Try Sharp preprocessing (grayscale + normalize + sharpen) ──
+    try {
+      const sharp = eval('require')('sharp');
+      const preprocessed = await sharp(inputBuffer)
+        .grayscale()
+        .normalize()
+        .sharpen()
+        .resize({ width: 2048, withoutEnlargement: true })
+        .toBuffer();
+
+      // ── Step 3: Multi-PSM trial on preprocessed image ──
+      const psmModes = [6, 4, 11];
+      const results = await Promise.all(
+        psmModes.map(psm => tryTesseractOnBuffer(preprocessed, psm))
+      );
+
+      // Pick the best result
+      resultData = getBestResult(results);
+    } catch {
+      // Sharp not available or preprocessing failed — try raw image with multi-PSM
+      const psmModes = [6, 4, 11];
+      const results = await Promise.all(
+        psmModes.map(psm => tryTesseractOnBuffer(inputBuffer, psm))
+      );
+      resultData = getBestResult(results);
+    }
+  } catch {
+    // Ultimate fallback: single Tesseract pass with File
+    const result = await Tesseract.recognize(file, "eng", {
+      logger: () => {},
+    });
+    resultData = result.data;
+  }
+
+  const raw_text = resultData.text || "";
+  const rawWords: any[] = resultData.words || [];
 
   // Filter low-confidence words BEFORE any parsing
   const words: WordPos[] = rawWords
@@ -1432,7 +1501,7 @@ export async function runLocalOCR(
   let items: LocalOCRItem[];
 
   // Extract paragraph-level structure from Tesseract
-  const paragraphs = extractParagraphs(result.data);
+  const paragraphs = extractParagraphs(resultData);
 
   // Layer 1: Paragraph-aware parser (uses Tesseract's own text grouping)
   // Preferred when we have 2+ paragraphs with good word data
