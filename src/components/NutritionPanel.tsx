@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { NutritionResult } from "@/app/api/nutrition/route";
 
 interface NutritionPanelProps {
@@ -38,79 +39,79 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
   };
 
   return (
-    <div style={{ marginTop: "0.5rem" }}>
+    <div className="mt-2">
       <button
         onClick={fetchNutrition}
         disabled={loading}
-        style={{
-          background: loading ? "#555" : "#2d6a4f",
-          color: "#fff",
-          border: "none",
-          borderRadius: "6px",
-          padding: "6px 14px",
-          fontSize: "0.8rem",
-          cursor: loading ? "wait" : "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "6px",
-        }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border-none cursor-pointer text-white disabled:cursor-wait disabled:opacity-50"
+        style={{ background: loading ? "#555" : "#2d6a4f" }}
       >
         {loading ? "Looking up..." : expanded && results ? "Hide Nutrition" : "Nutrition"}
       </button>
 
-      {expanded && results && results.length > 0 && (
-        <div style={{
-          marginTop: "0.5rem",
-          padding: "0.75rem",
-          background: "#1a2e1f",
-          borderRadius: "8px",
-          border: "1px solid #2d6a4f",
-          fontSize: "0.85rem",
-        }}>
-          {results.slice(0, 1).map((r, i) => (
-            <div key={i}>
-              {r.image_url && (
-                <img
-                  src={r.image_url}
-                  alt={r.name}
-                  style={{ float: "right", width: 50, height: 50, borderRadius: 6, objectFit: "cover" }}
-                />
-              )}
-              <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "#95d5b2" }}>{r.name}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
-                {r.calories !== undefined && (
-                  <span><strong>{r.calories}</strong> kcal</span>
+      <AnimatePresence>
+        {expanded && results && results.length > 0 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mt-2 p-3 rounded-lg border overflow-hidden"
+            style={{ background: "#1a2e1f", borderColor: "#2d6a4f" }}
+          >
+            {results.slice(0, 1).map((r, i) => (
+              <div key={i}>
+                {r.image_url && (
+                  <img
+                    src={r.image_url}
+                    alt={r.name}
+                    className="float-right w-[50px] h-[50px] rounded object-cover"
+                  />
                 )}
-                {r.protein_g !== undefined && (
-                  <span><strong>{r.protein_g}g</strong> protein</span>
-                )}
-                {r.fat_g !== undefined && (
-                  <span><strong>{r.fat_g}g</strong> fat</span>
-                )}
-                {r.carbs_g !== undefined && (
-                  <span><strong>{r.carbs_g}g</strong> carbs</span>
-                )}
-                {r.fiber_g !== undefined && (
-                  <span><strong>{r.fiber_g}g</strong> fiber</span>
-                )}
-                {r.sugars_g !== undefined && (
-                  <span><strong>{r.sugars_g}g</strong> sugars</span>
-                )}
+                <div className="font-semibold mb-1.5 text-emerald-300 text-sm">{r.name}</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  {r.calories !== undefined && (
+                    <span><strong>{r.calories}</strong> kcal</span>
+                  )}
+                  {r.protein_g !== undefined && (
+                    <span><strong>{r.protein_g}g</strong> protein</span>
+                  )}
+                  {r.fat_g !== undefined && (
+                    <span><strong>{r.fat_g}g</strong> fat</span>
+                  )}
+                  {r.carbs_g !== undefined && (
+                    <span><strong>{r.carbs_g}g</strong> carbs</span>
+                  )}
+                  {r.fiber_g !== undefined && (
+                    <span><strong>{r.fiber_g}g</strong> fiber</span>
+                  )}
+                  {r.sugars_g !== undefined && (
+                    <span><strong>{r.sugars_g}g</strong> sugars</span>
+                  )}
+                </div>
+                <div className="mt-1 text-[0.7rem] text-muted">
+                  per 100g &middot; via Open Food Facts
+                  {r.serving_size && ` \u00b7 serving: ${r.serving_size}`}
+                </div>
               </div>
-              <div style={{ marginTop: "0.3rem", fontSize: "0.7rem", color: "#888" }}>
-                per 100g · via Open Food Facts
-                {r.serving_size && ` · serving: ${r.serving_size}`}
-              </div>
-            </div>
-          ))}
-          {results.length === 0 && (
-            <div style={{ color: "#999" }}>No nutrition data found for &ldquo;{dishName}&rdquo;</div>
-          )}
-        </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {expanded && results && results.length === 0 && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          transition={{ duration: 0.2 }}
+          className="mt-2 text-sm text-muted"
+        >
+          No nutrition data found for &ldquo;{dishName}&rdquo;
+        </motion.div>
       )}
 
       {error && (
-        <div style={{ marginTop: "0.4rem", color: "#e76f51", fontSize: "0.8rem" }}>{error}</div>
+        <div className="mt-1 text-xs text-red-400">{error}</div>
       )}
     </div>
   );

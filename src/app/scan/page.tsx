@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { useScan, LocalOCRItem } from "@/hooks/useScan";
 import { DishCard } from "@/components/dishes/DishCard";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -113,25 +114,16 @@ export default function ScanPage() {
       <h1 className="text-2xl font-bold mb-4">Scan a Menu</h1>
 
       {!image && (
-        <div
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: "2px dashed #444",
-            borderRadius: 12,
-            padding: "3rem 2rem",
-            textAlign: "center",
-            cursor: "pointer",
-            marginBottom: "1rem",
-            background: preview ? "transparent" : "#111",
-          }}
+          className="border-2 border-dashed border-border rounded-xl p-12 text-center mb-4 cursor-pointer bg-surface"
         >
-          {preview ? (
-            <img src={preview} alt="Menu preview" style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 8 }} />
-          ) : (
-            <p style={{ color: "#666" }}>Drop a menu image here, or click to select</p>
-          )}
+          <p className="text-muted">Drop a menu image here, or click to select</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -139,11 +131,16 @@ export default function ScanPage() {
             hidden
             onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
           />
-        </div>
+        </motion.div>
       )}
 
       {image && !isScanning && status !== "complete" && (
-        <div className="mb-4">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mb-4"
+        >
           <img src={preview!} alt="Menu preview" className="w-full max-h-[300px] rounded-lg mb-4 object-contain" />
           <div className="flex gap-3">
             <Button onClick={handleScan} className="flex-1">
@@ -160,7 +157,7 @@ export default function ScanPage() {
           >
             Choose different image
           </Button>
-        </div>
+        </motion.div>
       )}
 
       {(isScanning || status === "complete") && (
@@ -173,7 +170,12 @@ export default function ScanPage() {
       )}
 
       {error && (
-        <div className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800 text-red-400 text-sm">
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800 text-red-400 text-sm"
+        >
           {error}
           {status === "error" && image && (
             <button
@@ -183,7 +185,7 @@ export default function ScanPage() {
               Retry with Local OCR
             </button>
           )}
-        </div>
+        </motion.div>
       )}
 
       {status === "complete" && localItems.length > 0 && (
@@ -210,10 +212,14 @@ export default function ScanPage() {
           )}
 
           {suggestionsLoading && (
-            <div className="mb-6 p-4 bg-surface rounded-lg text-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mb-6 p-4 bg-surface rounded-lg text-center"
+            >
               <Progress value={60} className="h-1.5 mb-2" />
               <p className="text-sm text-muted">AI Food Expert is analyzing your menu...</p>
-            </div>
+            </motion.div>
           )}
 
           {suggestionsError && !suggestionsLoading && (
@@ -223,58 +229,76 @@ export default function ScanPage() {
           )}
 
           {/* AI Food Expert Suggestions Panel */}
-          {showSuggestions && suggestions && (
-            <div className="mb-6 rounded-xl p-5 border border-primary" style={{ background: "linear-gradient(135deg, #064e3b, #065f46)" }}>
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
-                <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted bg-transparent border-none cursor-pointer">Hide</button>
-              </div>
-
-              {suggestions.overview && (
-                <p style={{ color: "#d1fae5", fontSize: "0.95rem", marginBottom: "1rem", lineHeight: 1.5 }}>{suggestions.overview}</p>
-              )}
-
-              {suggestions.must_try && (
-                <div style={{ background: "rgba(255,255,255,0.1)", borderRadius: 8, padding: "0.75rem", marginBottom: "1rem" }}>
-                  <span style={{ color: "#fcd34d", fontWeight: "bold", fontSize: "0.85rem", display: "block", marginBottom: "0.25rem" }}>MUST TRY</span>
-                  <span style={{ color: "#fff", fontSize: "1.1rem", fontWeight: "bold" }}>{suggestions.must_try}</span>
-                </div>
-              )}
-
-              {suggestions.top_picks && suggestions.top_picks.length > 0 && (
-                <div style={{ marginBottom: "1rem" }}>
-                  <p style={{ color: "#a7f3d0", fontWeight: "bold", marginBottom: "0.5rem", fontSize: "0.9rem" }}>TOP PICKS</p>
-                  {suggestions.top_picks.map((pick: any, i: number) => (
-                    <div key={i} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "0.6rem", marginBottom: "0.4rem" }}>
-                      <p style={{ color: "#fff", fontWeight: "bold", marginBottom: "0.2rem" }}>{pick.name}</p>
-                      <p style={{ color: "#d1fae5", fontSize: "0.85rem", marginBottom: pick.pairing ? "0.15rem" : 0 }}>{pick.reason}</p>
-                      {pick.pairing && <p style={{ color: "#fcd34d", fontSize: "0.8rem" }}>{pick.pairing}</p>}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {suggestions.tips && suggestions.tips.length > 0 && (
-                <div>
-                  <p style={{ color: "#a7f3d0", fontWeight: "bold", marginBottom: "0.5rem", fontSize: "0.9rem" }}>TIPS</p>
-                  {suggestions.tips.map((tip: string, i: number) => (
-                    <p key={i} style={{ color: "#d1fae5", fontSize: "0.85rem", marginBottom: "0.3rem", paddingLeft: "1rem" }}>• {tip}</p>
-                  ))}
-                </div>
-              )}
-
-              <button
-                onClick={getSuggestions}
-                style={{ marginTop: "0.75rem", width: "100%", padding: "0.5rem", background: "rgba(255,255,255,0.1)", color: "#d1fae5", border: "1px solid #059669", borderRadius: 6, cursor: "pointer", fontSize: "0.85rem" }}
+          <AnimatePresence>
+            {showSuggestions && suggestions && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className="mb-6 rounded-xl p-5 border border-primary overflow-hidden"
+                style={{ background: "linear-gradient(135deg, #064e3b, #065f46)" }}
               >
-                Regenerate Suggestions
-              </button>
-            </div>
-          )}
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
+                  <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted bg-transparent border-none cursor-pointer">Hide</button>
+                </div>
 
-          <div style={{ display: "grid", gap: "1rem" }}>
-            {localItems.map((item) => (
-              <LocalDishItem key={item.id} item={item} />
+                {suggestions.overview && (
+                  <p className="text-emerald-100 text-sm mb-4 leading-relaxed">{suggestions.overview}</p>
+                )}
+
+                {suggestions.must_try && (
+                  <div className="bg-white/10 rounded-lg p-3 mb-4">
+                    <span className="text-amber-300 font-bold text-xs block mb-1">MUST TRY</span>
+                    <span className="text-white text-lg font-bold">{suggestions.must_try}</span>
+                  </div>
+                )}
+
+                {suggestions.top_picks && suggestions.top_picks.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-emerald-200 font-bold mb-2 text-sm">TOP PICKS</p>
+                    {suggestions.top_picks.map((pick: any, i: number) => (
+                      <div key={i} className="bg-white/5 rounded-md p-3 mb-1.5">
+                        <p className="text-white font-bold text-sm mb-0.5">{pick.name}</p>
+                        <p className="text-emerald-100 text-xs mb-0.5">{pick.reason}</p>
+                        {pick.pairing && <p className="text-amber-300 text-xs">{pick.pairing}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {suggestions.tips && suggestions.tips.length > 0 && (
+                  <div>
+                    <p className="text-emerald-200 font-bold mb-2 text-sm">TIPS</p>
+                    {suggestions.tips.map((tip: string, i: number) => (
+                      <p key={i} className="text-emerald-100 text-xs mb-1 pl-4">&bull; {tip}</p>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={getSuggestions}
+                  className="mt-3 w-full py-2 rounded-md bg-white/10 text-emerald-100 border border-primary text-xs cursor-pointer"
+                >
+                  Regenerate Suggestions
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Dish Grid */}
+          <div className="grid gap-4">
+            {localItems.map((item, index) => (
+              <motion.div
+                key={item.id}
+                layout
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: index * 0.05 }}
+              >
+                <LocalDishItem item={item} />
+              </motion.div>
             ))}
           </div>
         </div>
@@ -305,9 +329,11 @@ function LocalDishItem({ item }: { item: LocalOCRItem }) {
 
   return (
     <>
-      <div
+      <motion.div
         onClick={() => loadImages()}
-        style={{ cursor: "pointer" }}
+        className="cursor-pointer"
+        whileHover={{ scale: 1.01 }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
       >
         <DishCard
           id={item.id}
@@ -318,26 +344,34 @@ function LocalDishItem({ item }: { item: LocalOCRItem }) {
           image_url={item.image_url}
           confidence={item.confidence}
         />
-        <p style={{ color: "#555", fontSize: "0.8rem", marginTop: "0.4rem" }}>Tap to see more photos</p>
-      </div>
+        <p className="text-xs text-muted mt-1.5">Tap to see more photos</p>
+      </motion.div>
 
       <Dialog open={showImages} onOpenChange={(open) => { if (!open) setShowImages(false); }}>
         <DialogContent
           className="sm:max-w-2xl max-h-[80vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
-          <DialogTitle className="text-lg font-semibold mb-2">{item.name}</DialogTitle>
+          {showImages && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2 }}
+            >
+              <DialogTitle className="text-lg font-semibold mb-2">{item.name}</DialogTitle>
 
-          {loadingImages && <p className="text-sm text-muted">Loading photos...</p>}
+              {loadingImages && <p className="text-sm text-muted">Loading photos...</p>}
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {moreImages.map((img) => (
-              <img key={img.url} src={img.url} alt={item.name} className="w-full rounded-lg" />
-            ))}
-          </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {moreImages.map((img) => (
+                  <img key={img.url} src={img.url} alt={item.name} className="w-full rounded-lg" />
+                ))}
+              </div>
 
-          {!loadingImages && moreImages.length === 0 && (
-            <p className="text-sm text-muted">No photos found for this dish.</p>
+              {!loadingImages && moreImages.length === 0 && (
+                <p className="text-sm text-muted">No photos found for this dish.</p>
+              )}
+            </motion.div>
           )}
         </DialogContent>
       </Dialog>
