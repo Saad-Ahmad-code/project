@@ -6,6 +6,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { DishCard } from "@/components/dishes/DishCard";
 import { NutritionPanel } from "@/components/NutritionPanel";
+import { RecipePanel } from "@/components/RecipePanel";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
@@ -273,6 +274,7 @@ export default function ResultsPage() {
               ai_description={item.ai_description}
             />
             <NutritionPanel dishName={item.name} />
+            <RecipePanel dishName={item.name} />
             <p className="text-xs text-muted mt-1.5">Tap to see more photos</p>
           </motion.div>
         ))}

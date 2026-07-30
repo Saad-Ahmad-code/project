@@ -9,12 +9,12 @@ export function Navbar() {
   const { data: session, status } = useSession();
 
   return (
-    <nav className="flex items-center justify-between px-8 py-4 border-b border-border">
+    <nav className="flex items-center justify-between px-12 py-5 border-b border-border">
       <Link href="/" className="text-xl font-bold text-white no-underline">
         MenuLens
       </Link>
 
-      <div className="flex gap-6 items-center">
+      <div className="flex gap-8 items-center">
         <Link href="/scan" className="text-sm text-muted hover:text-white transition-colors no-underline">
           Scan
         </Link>

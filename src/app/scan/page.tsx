@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BarcodeScanner } from "@/components/BarcodeScanner";
 
 export default function ScanPage() {
   const router = useRouter();
@@ -37,6 +38,11 @@ export default function ScanPage() {
   const [translating, setTranslating] = useState(false);
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [showTranslated, setShowTranslated] = useState(false);
+  // Barcode Scanner state
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  const [barcodeResult, setBarcodeResult] = useState<{ name: string; calories?: number; protein_g?: number; fat_g?: number; carbs_g?: number; sugars_g?: number; image_url?: string; nutri_score?: string } | null>(null);
+  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeError, setBarcodeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (preview) URL.revokeObjectURL(preview);
@@ -136,6 +142,30 @@ export default function ScanPage() {
   };
 
   const isScanning = status === "uploading" || status === "scanning" || status === "local_scanning";
+
+  const handleBarcodeDetected = async (barcode: string) => {
+    setShowBarcodeScanner(false);
+    setBarcodeLoading(true);
+    setBarcodeError(null);
+    setBarcodeResult(null);
+    try {
+      const res = await fetch("/api/nutrition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcode }),
+      });
+      const data = await res.json();
+      if (data.error || !data.results?.length) {
+        setBarcodeError(data.error || "Product not found");
+      } else {
+        setBarcodeResult(data.results[0]);
+      }
+    } catch {
+      setBarcodeError("Failed to look up barcode");
+    } finally {
+      setBarcodeLoading(false);
+    }
+  };
 
   return (
     <main className="max-w-2xl mx-auto p-8">
@@ -363,6 +393,87 @@ export default function ScanPage() {
               {translatedText}
             </div>
           )}
+
+          {/* Barcode Scanner */}
+          <div className="mb-6">
+            {!showBarcodeScanner && (
+              <Button
+                onClick={() => setShowBarcodeScanner(true)}
+                variant="outline"
+                className="w-full"
+              >
+                Scan Barcode (Packaged Foods)
+              </Button>
+            )}
+
+            {showBarcodeScanner && (
+              <BarcodeScanner
+                onScan={handleBarcodeDetected}
+                onClose={() => setShowBarcodeScanner(false)}
+              />
+            )}
+
+            {barcodeLoading && (
+              <div className="mt-3 p-4 bg-surface rounded-lg text-center">
+                <Progress value={60} className="h-1.5 mb-2" />
+                <p className="text-sm text-muted">Looking up product...</p>
+              </div>
+            )}
+
+            {barcodeError && (
+              <div className="mt-3 p-3 rounded-lg bg-red-950 border border-red-800">
+                <p className="text-sm text-red-400">{barcodeError}</p>
+              </div>
+            )}
+
+            {barcodeResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-3 p-4 rounded-lg border bg-surface"
+                style={{ borderColor: "#2d6a4f" }}
+              >
+                <div className="flex items-start gap-4">
+                  {barcodeResult.image_url && (
+                    <img
+                      src={barcodeResult.image_url}
+                      alt={barcodeResult.name}
+                      className="w-16 h-16 rounded-lg object-cover shrink-0"
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold text-sm">{barcodeResult.name}</h3>
+                      {barcodeResult.nutri_score && (
+                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[0.6rem] font-bold text-white ${
+                          barcodeResult.nutri_score === 'A' ? 'bg-green-600' :
+                          barcodeResult.nutri_score === 'B' ? 'bg-lime-600' :
+                          barcodeResult.nutri_score === 'C' ? 'bg-yellow-500' :
+                          barcodeResult.nutri_score === 'D' ? 'bg-orange-500' :
+                          'bg-red-600'
+                        }`}>
+                          {barcodeResult.nutri_score}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-xs text-muted">
+                      {barcodeResult.calories !== undefined && <span>{barcodeResult.calories} kcal</span>}
+                      {barcodeResult.protein_g !== undefined && <span>{barcodeResult.protein_g}g protein</span>}
+                      {barcodeResult.fat_g !== undefined && <span>{barcodeResult.fat_g}g fat</span>}
+                      {barcodeResult.carbs_g !== undefined && <span>{barcodeResult.carbs_g}g carbs</span>}
+                      {barcodeResult.sugars_g !== undefined && <span>{barcodeResult.sugars_g}g sugars</span>}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setBarcodeResult(null)}
+                  className="mt-2 text-xs text-muted hover:text-white bg-transparent border-none cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </motion.div>
+            )}
+          </div>
 
           {/* Dish Grid */}
           <div className="grid gap-4">

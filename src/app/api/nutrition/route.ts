@@ -123,6 +123,40 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const dishName = (body.dish_name || '').trim();
+    const barcode = (body.barcode || '').trim();
+
+    // Barcode lookup — direct product API
+    if (barcode) {
+      const productUrl = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`;
+      const res = await fetch(productUrl, {
+        headers: { 'User-Agent': 'MenuLens - meal scanning app - 70186904@student.uol.edu.pk' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        return Response.json({ results: [], error: 'Product not found' });
+      }
+      const data = await res.json();
+      if (data.status !== 1 || !data.product) {
+        return Response.json({ results: [], error: 'Product not found' });
+      }
+      const p = data.product;
+      const n = p.nutriments || {};
+      const result: NutritionResult = {
+        name: p.product_name || 'Unknown Product',
+        calories: n['energy-kcal_100g'] ? Math.round(n['energy-kcal_100g']) : undefined,
+        protein_g: n.proteins_100g ? Math.round(n.proteins_100g * 10) / 10 : undefined,
+        fat_g: n.fat_100g ? Math.round(n.fat_100g * 10) / 10 : undefined,
+        carbs_g: n.carbohydrates_100g ? Math.round(n.carbohydrates_100g * 10) / 10 : undefined,
+        fiber_g: n.fiber_100g ? Math.round(n.fiber_100g * 10) / 10 : undefined,
+        sugars_g: n.sugars_100g ? Math.round(n.sugars_100g * 10) / 10 : undefined,
+        serving_size: p.serving_size || undefined,
+        image_url: p.image_front_small_url || undefined,
+        source: 'openfoodfacts',
+        barcode: p.code || barcode,
+      };
+      result.nutri_score = calculateNutriScore(result);
+      return Response.json({ dish_name: result.name, results: [result], cached: false });
+    }
 
     if (!dishName || dishName.length < 2) {
       return Response.json({ error: 'dish_name is required', results: [] }, { status: 400 });

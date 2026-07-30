@@ -1,0 +1,65 @@
+/**
+ * Dish Image Classification API
+ *
+ * POST /api/classify
+ *   FormData: { image: File }
+ *   Returns: { dishes: [{ name: string, confidence: number }] }
+ *
+ * Calls a PyTorch ResNet18 classifier running in the project .venv.
+ */
+
+import { NextRequest } from 'next/server';
+import { execSync } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { logger } from '@/lib/logger';
+
+const PYTHON = path.resolve(process.cwd(), '.venv/Scripts/python');
+const SCRIPT = path.resolve(process.cwd(), 'src/scripts/food_classifier.py');
+const TMP_DIR = path.resolve(process.cwd(), '.tmp');
+
+export async function POST(request: NextRequest) {
+  try {
+    const formData = await request.formData();
+    const file = formData.get('image') as File | null;
+
+    if (!file) {
+      return Response.json({ error: 'image file is required', dishes: [] }, { status: 400 });
+    }
+
+    // Save uploaded file to temp
+    if (!fs.existsSync(TMP_DIR)) {
+      fs.mkdirSync(TMP_DIR, { recursive: true });
+    }
+
+    const ext = file.name?.split('.').pop() || 'jpg';
+    const tmpPath = path.join(TMP_DIR, `classify_${Date.now()}.${ext}`);
+    const buffer = Buffer.from(await file.arrayBuffer());
+    fs.writeFileSync(tmpPath, buffer);
+
+    // Run classifier
+    const output = execSync(
+      `"${PYTHON}" "${SCRIPT}" "${tmpPath}"`,
+      {
+        encoding: 'utf-8',
+        timeout: 30000,
+        env: { ...process.env, PYTHONPATH: '' },
+      }
+    );
+
+    // Clean up temp file
+    try { fs.unlinkSync(tmpPath); } catch {}
+
+    const result = JSON.parse(output.trim());
+
+    if (result.error) {
+      return Response.json({ error: result.error, dishes: [] }, { status: 500 });
+    }
+
+    return Response.json({ dishes: result.dishes || [] });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error(`[Classify] API error: ${message}`);
+    return Response.json({ error: message, dishes: [] }, { status: 500 });
+  }
+}
