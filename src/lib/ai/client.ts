@@ -70,10 +70,10 @@ ${rawText.slice(0, 3000)}
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://menulens.app",
-        "X-Title": "MenuLens",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://menulens.app",
+                "X-Title": "MenuLens",
       },
       body: JSON.stringify({
         model: "google/gemma-4-26b-a4b-it:free",
@@ -641,10 +641,10 @@ async function callOpenRouterVision(imageBuffer: ArrayBuffer, prompt: string, mo
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": "https://menulens.app",
-      "X-Title": "MenuLens",
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://menulens.app",
+              "X-Title": "MenuLens",
     },
     body: JSON.stringify({
       model,

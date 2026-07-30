@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { useScan, LocalOCRItem } from "@/hooks/useScan";
 import { DishCard } from "@/components/dishes/DishCard";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -48,8 +49,17 @@ export default function ScanPage() {
   useEffect(() => {
     if (resultId && status === "complete" && localItems.length === 0) {
       router.push(`/results/${resultId}`);
+      toast.success("Menu scanned successfully!");
     }
   }, [resultId, status, localItems.length, router]);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
+  useEffect(() => {
+    if (suggestionsError) toast.error(suggestionsError);
+  }, [suggestionsError]);
 
   useEffect(() => {
     return () => {
@@ -298,10 +308,11 @@ export default function ScanPage() {
           <AnimatePresence>
             {showSuggestions && suggestions && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
+                key="suggestions"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
                 className="mb-6 rounded-xl p-5 border border-primary overflow-hidden bg-gradient-to-br from-emerald-900 to-emerald-800"
               >
                 <div className="flex justify-between items-center mb-3">

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { DishCard } from "@/components/dishes/DishCard";
 import { NutritionPanel } from "@/components/NutritionPanel";
 import { RecipePanel } from "@/components/RecipePanel";
@@ -44,7 +45,10 @@ export default function ResultsPage() {
         setScan(data.scan);
         setItems(data.items || []);
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => {
+        setError(err.message);
+        toast.error(err.message);
+      })
       .finally(() => setLoading(false));
   }, [params.id]);
 
@@ -109,7 +113,29 @@ export default function ResultsPage() {
         return true;
       });
 
-  if (loading) return <main className="max-w-3xl mx-auto p-8"><p className="text-center text-muted">Loading...</p></main>;
+  if (loading) return (
+    <main className="max-w-3xl mx-auto p-8 min-h-screen">
+      <div className="flex justify-between mb-4">
+        <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+        <div className="h-4 w-20 bg-muted rounded animate-pulse" />
+      </div>
+      <div className="h-8 w-48 bg-muted rounded animate-pulse mb-6" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="bg-surface border border-border rounded-xl p-4">
+            <div className="flex gap-4">
+              <div className="w-[120px] h-[120px] bg-muted rounded-lg animate-pulse shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-5 w-3/4 bg-muted rounded animate-pulse" />
+                <div className="h-4 w-full bg-muted rounded animate-pulse" />
+                <div className="h-4 w-1/2 bg-muted rounded animate-pulse" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </main>
+  );
   if (error) return <main className="max-w-3xl mx-auto p-8"><p className="text-center text-red-400">{error}</p></main>;
 
   return (

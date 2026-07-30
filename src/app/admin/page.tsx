@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 import {
   BarChart,
   Bar,
@@ -43,6 +44,21 @@ interface Stats {
   recentScans: RecentScan[];
 }
 
+const StatCard = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | string;
+}) => (
+  <div className="bg-surface border border-border rounded-xl p-5">
+    <p className="text-xs text-muted font-medium uppercase tracking-wider mb-1">
+      {label}
+    </p>
+    <p className="text-3xl font-bold text-white">{value}</p>
+  </div>
+);
+
 export default function AdminPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -59,6 +75,7 @@ export default function AdminPage() {
         .then(setStats)
         .catch((err) => {
           setStatsError(err.message || "Failed to load stats");
+          toast.error(err.message || "Failed to load stats");
         });
     }
   }, [session]);
@@ -76,21 +93,6 @@ export default function AdminPage() {
       </main>
     );
   }
-
-  const StatCard = ({
-    label,
-    value,
-  }: {
-    label: string;
-    value: number | string;
-  }) => (
-    <div className="bg-surface border border-border rounded-xl p-5">
-      <p className="text-xs text-muted font-medium uppercase tracking-wider mb-1">
-        {label}
-      </p>
-      <p className="text-3xl font-bold text-white">{value}</p>
-    </div>
-  );
 
   return (
     <main className="max-w-4xl mx-auto p-8 space-y-8">
