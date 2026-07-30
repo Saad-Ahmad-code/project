@@ -1,0 +1,17 @@
+Instrumentation: failed to ensure indexes MongoServerSelectionError: connect ECONNREFUSED ::1:27017, connect ECONNREFUSED 127.0.0.1:27017
+    at <unknown> (MongoServerSelectionError: connect ECONNREFUSED ::1:27017, connect ECONNREFUSED 127.0.0.1:27017)
+    at async j (C:\Users\maqso\OneDrive\Desktop\project\.next\server\instrumentation.js:1:634)
+    at async k (C:\Users\maqso\OneDrive\Desktop\project\.next\server\instrumentation.js:1:817)
+    at async l (C:\Users\maqso\OneDrive\Desktop\project\.next\server\instrumentation.js:1:861) {
+  errorLabelSet: Set(0) {},
+  reason: [TopologyDescription],
+  code: undefined,
+  [cause]: MongoNetworkError: connect ECONNREFUSED ::1:27017, connect ECONNREFUSED 127.0.0.1:27017
+      at <unknown> (MongoNetworkError: connect ECONNREFUSED ::1:27017, connect ECONNREFUSED 127.0.0.1:27017) {
+    errorLabelSet: Set(1) { 'ResetPool' },
+    beforeHandshake: false,
+    [cause]: [AggregateError: ] { code: 'ECONNREFUSED' }
+  }
+}
+[next-auth][warn][NEXTAUTH_URL] 
+https://next-auth.js.org/warnings#nextauth_url
