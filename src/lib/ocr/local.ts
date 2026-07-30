@@ -666,6 +666,8 @@ function basicExtract(raw_text: string): LocalOCRItem[] {
   for (const line of lines) {
     // Skip obvious noise
     if (isNoiseLine(line)) continue;
+    // Skip description lines (not dish names)
+    if (isDescriptionLine(line)) continue;
 
     const cleaned = line.replace(/[|]/g, " ").replace(/\s+/g, " ").trim();
     const price = findPriceInText(cleaned);
@@ -750,6 +752,8 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
 
       // Single number or price-only line
       if (/^\d+(?:\.\d{1,2})?$/.test(line.trim())) continue;
+      // Skip description lines (not dish names)
+      if (isDescriptionLine(line)) continue;
 
       // Check for size variant pattern: "Small 9.99 / Large 12.99"
       if (/(Small|Regular|Single|Large|Double|Medium)\s+[$€£¥]?\s*\d/.test(line)) {
@@ -1121,7 +1125,7 @@ function isDescriptionLine(text: string): boolean {
   const t = text.toLowerCase().trim();
 
   // Starts with ingredient/prep words
-  if (/^(with|in|on|served|topped|drizzled|accompanied|comes|available|choice|side)/i.test(t)) return true;
+  if (/^(with|in|on|served|topped|drizzled|accompanied|comes|available|choice|side|and|plus|add)/i.test(t)) return true;
 
   // Allergen / dietary info
   if (/\b(gf|v|vg|df|contains|allergen|nut)\b/i.test(t)) return true;
@@ -1131,7 +1135,7 @@ function isDescriptionLine(text: string): boolean {
 
   // High ratio of descriptive marker words
   const descMarkers = ["with", "fresh", "sautéed", "roasted", "grilled", "baked", "served",
-    "topped", "drizzled", "alongside", "accompanied", "choice", "side", "in", "on", "and"];
+    "topped", "drizzled", "alongside", "accompanied", "choice", "side", "in", "on", "and", "plus"];
   const words = t.split(/\s+/);
   const markerCount = words.filter(w => descMarkers.includes(w)).length;
   if (markerCount >= 2 && words.length <= 10) return true;
