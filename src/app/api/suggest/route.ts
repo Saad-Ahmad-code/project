@@ -1,42 +1,30 @@
+/**
+ * 🍽️ AI Food Expert Suggestions (Offline-compatible)
+ * POST /api/suggest
+ * Body: { dishes: string[] }
+ * Returns: Groq-powered food recommendations
+ */
+
 import { NextRequest, NextResponse } from "next/server";
-import { getDatabase } from "@/lib/mongodb";
 import { chatCompletions } from "@/lib/ai/client";
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest) {
   try {
-    const { id } = await params;
-    const database = await getDatabase();
-    const scan = await database.collection("scans").findOne({ id });
-    const items = await database.collection("dishes").find({ scan_id: id }).toArray();
-    return NextResponse.json({ scan, items });
-  } catch {
-    return NextResponse.json({ error: "Scan not found" }, { status: 404 });
-  }
-}
+    const { dishes } = await request.json();
 
-/**
- * POST /api/scan/[id] — AI Food Expert Suggestions
- * Takes the scanned dishes and returns Groq-powered food recommendations
- */
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await params;
-    const database = await getDatabase();
-    const items = await database.collection("dishes").find({ scan_id: id }).toArray();
-
-    if (!items || items.length === 0) {
-      return NextResponse.json({ error: "No dishes found for this scan" }, { status: 404 });
+    if (!dishes || !Array.isArray(dishes) || dishes.length === 0) {
+      return NextResponse.json({ error: "Provide at least one dish name" }, { status: 400 });
     }
 
-    const dishList = items.map((i: any) => i.name).join(", ");
+    const dishList = dishes.join(", ");
 
-    const prompt = {
+    const result = await chatCompletions({
       messages: [
         {
-          role: "system" as const,
+          role: "system",
           content: `You are a world-class food expert and sommelier. Given a list of menu dishes, provide expert recommendations in valid JSON.
 
-Return ONLY this JSON structure (no markdown):
+Return ONLY this JSON structure (no markdown, no code blocks):
 {
   "top_picks": [
     { "name": "Dish Name", "reason": "Why this is a must-try (1 sentence)", "pairing": "Drink pairing suggestion" }
@@ -47,15 +35,14 @@ Return ONLY this JSON structure (no markdown):
 }`,
         },
         {
-          role: "user" as const,
+          role: "user",
           content: `Here are the dishes available: ${dishList}. As a food expert, what should I order?`,
         },
       ],
       temperature: 0.7,
       max_tokens: 800,
-    };
+    });
 
-    const result = await chatCompletions(prompt);
     const content = result.choices[0]?.message?.content || "";
 
     // Try to parse JSON, fallback to text

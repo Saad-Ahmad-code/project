@@ -1,7 +1,8 @@
-node_modules
-.next
-data/
-*.local
+node_modules/
+.next/
+.venv/
+*.tsbuildinfo
+.next.dummy
+eng.traineddata
 .env.local
-.env
-out
+data/

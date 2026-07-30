@@ -29,7 +29,7 @@ export function useScan() {
     setLocalItems([]);
 
     const form = new FormData();
-    form.append("file", file);
+    form.append("image", file);
 
     try {
       const res = await fetch("/api/scan/new", { method: "POST", body: form });

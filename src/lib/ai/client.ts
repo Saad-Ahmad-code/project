@@ -298,7 +298,7 @@ def classify_line(text, word_list, total_height):
         return {"type": "blank", "score": 0}
     letters = sum(1 for c in s if c.isalpha())
     digits = sum(1 for c in s if c.isdigit())
-    symbols = sum(1 for c in s if not c.isalnum() and c not in " '\"")
+    symbols = sum(1 for c in s if not c.isalnum() and c not in " '")
     meaningful = letters + digits
     if meaningful == 0:
         return {"type": "garbage", "score": 0}

@@ -167,35 +167,47 @@ async function layer2SharpTesseract(
   }
 }
 
-// ── Layer 3: Python subprocess OCR ──
+// ── Layer 3: EasyOCR Python subprocess ──
 
 async function layer3PythonOCR(
   imageBuffer: ArrayBuffer,
   send: ProgressCallback
 ): Promise<OCRResult | null> {
-  send('status', { status: 'ocr_layer3', progress: 50, message: 'Layer 3: Python OCR engine...' });
+  send('status', { status: 'ocr_layer3', progress: 50, message: 'Layer 3: EasyOCR engine...' });
 
+  let inputPath = '';
   try {
-    // Import the pythonOCR function from ai/client
-    const { pythonOCR } = require('@/lib/ai/client');
-    const result = await pythonOCR(imageBuffer);
+    const { execSync } = require('child_process');
+    const { writeFileSync } = require('fs');
+    const path = require('path');
 
-    if (!result || result.length < 10) {
-      logger.info('[OCR] Layer 3: Python OCR returned empty');
-      return null;
-    }
+    const scriptPath = path.join(process.cwd(), 'src', 'scripts', 'easyocr_scan.py');
+
+    // Prefer project venv Python, fall back to system python
+    const venvPython = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
+    const pythonCmd = process.env.MENULENS_PYTHON || (
+      require('fs').existsSync(venvPython) ? venvPython : (process.env.PYTHON_CMD || 'python')
+    );
+
+    const tmpDir = process.env.TMPDIR || process.env.TMP || '/tmp';
+    inputPath = path.join(tmpDir, `menulens_easyocr_${Date.now()}.jpg`);
+    writeFileSync(inputPath, Buffer.from(imageBuffer));
+
+    const raw = execSync(
+      `"${pythonCmd}" "${scriptPath}" "${inputPath}"`,
+      { timeout: 120000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONPATH: '' } }
+    ).toString().trim();
 
     let parsed: any;
     try {
-      parsed = JSON.parse(result);
+      parsed = JSON.parse(raw);
     } catch {
-      // Raw text fallback
-      return {
-        items: [],
-        raw_text: result,
-        layer: 'python-raw',
-        confidence: 40,
-      };
+      return null;
+    }
+
+    if (parsed.error) {
+      logger.warn(`[OCR] Layer 3 EasyOCR error: ${parsed.error}`);
+      return null;
     }
 
     const items: OCRItem[] = (parsed.items || []).map((i: any) => ({
@@ -207,21 +219,25 @@ async function layer3PythonOCR(
     }));
 
     if (items.length === 0) {
-      logger.info('[OCR] Layer 3: Python OCR found no items');
+      logger.info('[OCR] Layer 3: EasyOCR found no items');
       return null;
     }
 
-    logger.info(`[OCR] Layer 3: ${items.length} items from Python OCR`);
+    logger.info(`[OCR] Layer 3: ${items.length} items from EasyOCR (conf=${parsed.avg_confidence})`);
     return {
       items,
       raw_text: parsed.raw_text || '',
-      layer: parsed.strategy || 'python-ocr',
+      layer: 'easyocr',
       confidence: parsed.avg_confidence || 70,
       menu_name: parsed.menu_name,
     };
   } catch (err: any) {
-    logger.warn(`[OCR] Layer 3 failed: ${err.message?.slice(0, 100)}`);
+    logger.warn(`[OCR] Layer 3 EasyOCR failed: ${err.message?.slice(0, 150)}`);
     return null;
+  } finally {
+    if (inputPath) {
+      try { require('fs').unlinkSync(inputPath); } catch { /* ignore */ }
+    }
   }
 }
 
