@@ -28,6 +28,69 @@ export interface NutritionResult {
   image_url?: string;
   source: string;
   barcode?: string;
+  nutri_score?: string;
+}
+
+/** Simplified Nutri-Score calculation based on EU regulation */
+function calculateNutriScore(n: { calories?: number; fiber_g?: number; protein_g?: number; fat_g?: number; sugars_g?: number }): string {
+  // Negative points (N) — based on energy, saturated fat, sugar, sodium per 100g
+  let N = 0;
+
+  // Energy points
+  const kcal = n.calories ?? 0;
+  if (kcal > 275) N += 10;
+  else if (kcal > 200) N += 7;
+  else if (kcal > 150) N += 5;
+  else if (kcal > 100) N += 3;
+  else if (kcal > 50) N += 1;
+
+  // Saturated fat — estimate from total fat (~30%)
+  const satFat = (n.fat_g ?? 0) * 0.3;
+  if (satFat > 10) N += 10;
+  else if (satFat > 7) N += 7;
+  else if (satFat > 5) N += 5;
+  else if (satFat > 3) N += 3;
+  else if (satFat > 1) N += 1;
+
+  // Sugar points
+  const sugar = n.sugars_g ?? 0;
+  if (sugar > 15) N += 10;
+  else if (sugar > 10) N += 7;
+  else if (sugar > 7) N += 5;
+  else if (sugar > 4) N += 3;
+  else if (sugar > 2) N += 1;
+
+  // Sodium — estimate from calories (~0.3g per 100kcal)
+  const sodium = kcal * 0.003;
+  if (sodium > 0.9) N += 10;
+  else if (sodium > 0.7) N += 7;
+  else if (sodium > 0.5) N += 5;
+  else if (sodium > 0.3) N += 3;
+  else if (sodium > 0.1) N += 1;
+
+  // Positive points (P)
+  let P = 0;
+
+  // Fiber
+  const fiber = n.fiber_g ?? 0;
+  if (fiber > 4.7) P += 5;
+  else if (fiber > 3.0) P += 3;
+  else if (fiber > 1.5) P += 2;
+  else if (fiber > 0.7) P += 1;
+
+  // Protein
+  const protein = n.protein_g ?? 0;
+  if (protein > 8) P += 5;
+  else if (protein > 5) P += 3;
+  else if (protein > 3) P += 2;
+  else if (protein > 1.5) P += 1;
+
+  const score = N - P;
+  if (score <= -1) return "A";
+  if (score <= 2) return "B";
+  if (score <= 10) return "C";
+  if (score <= 18) return "D";
+  return "E";
 }
 
 function getCached(key: string): NutritionResult[] | null {
@@ -91,7 +154,7 @@ export async function POST(request: NextRequest) {
 
     const results: NutritionResult[] = products.slice(0, 5).map((p: any) => {
       const n = p.nutriments || {};
-      return {
+      const result: NutritionResult = {
         name: p.product_name || searchTerm,
         calories: n['energy-kcal_100g'] ? Math.round(n['energy-kcal_100g']) : undefined,
         protein_g: n.proteins_100g ? Math.round(n.proteins_100g * 10) / 10 : undefined,
@@ -104,6 +167,8 @@ export async function POST(request: NextRequest) {
         source: 'openfoodfacts',
         barcode: p.code || undefined,
       };
+      result.nutri_score = calculateNutriScore(result);
+      return result;
     });
 
     // Cache results

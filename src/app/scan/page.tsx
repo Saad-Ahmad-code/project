@@ -32,6 +32,11 @@ export default function ScanPage() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // Translation state
+  const [targetLang, setTargetLang] = useState("english");
+  const [translating, setTranslating] = useState(false);
+  const [translatedText, setTranslatedText] = useState<string | null>(null);
+  const [showTranslated, setShowTranslated] = useState(false);
 
   useEffect(() => {
     if (preview) URL.revokeObjectURL(preview);
@@ -105,6 +110,29 @@ export default function ScanPage() {
     setImage(null);
     setPreview(null);
     reset();
+  };
+
+  const translateMenu = async () => {
+    if (localItems.length === 0 || targetLang === "english") return;
+    setTranslating(true);
+    setTranslatedText(null);
+    try {
+      const menuText = localItems.map((item) => `${item.name} - $${item.price?.toFixed(2) || 'N/A'}${item.description ? `: ${item.description}` : ''}`).join('\n');
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: menuText, target_language: targetLang }),
+      });
+      const data = await res.json();
+      if (data.translation?.translated_text) {
+        setTranslatedText(data.translation.translated_text);
+        setShowTranslated(true);
+      }
+    } catch {
+      // silently fail — translation is a bonus feature
+    } finally {
+      setTranslating(false);
+    }
   };
 
   const isScanning = status === "uploading" || status === "scanning" || status === "local_scanning";
@@ -263,6 +291,15 @@ export default function ScanPage() {
                         <p className="text-white font-bold text-sm mb-0.5">{pick.name}</p>
                         <p className="text-emerald-100 text-xs mb-0.5">{pick.reason}</p>
                         {pick.pairing && <p className="text-amber-300 text-xs">{pick.pairing}</p>}
+                        {pick.allergens && pick.allergens.length > 0 && (
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {pick.allergens.map((a: string) => (
+                              <span key={a} className="text-[0.65rem] px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-800">
+                                {a}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -286,6 +323,46 @@ export default function ScanPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Translation */}
+          <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-surface border border-border">
+            <select
+              value={targetLang}
+              onChange={(e) => setTargetLang(e.target.value)}
+              className="flex-1 bg-transparent border border-border rounded-md px-2 py-1.5 text-sm text-muted cursor-pointer"
+            >
+              <option value="english">English</option>
+              <option value="urdu">Urdu</option>
+              <option value="arabic">Arabic</option>
+              <option value="chinese">Chinese</option>
+              <option value="french">French</option>
+              <option value="spanish">Spanish</option>
+              <option value="german">German</option>
+              <option value="japanese">Japanese</option>
+            </select>
+            <Button
+              onClick={translateMenu}
+              disabled={translating || targetLang === "english"}
+              variant="outline"
+              size="sm"
+            >
+              {translating ? "Translating..." : showTranslated ? "Translate" : "Translate"}
+            </Button>
+            {showTranslated && translatedText && (
+              <button
+                onClick={() => setShowTranslated(false)}
+                className="text-xs text-muted bg-transparent border-none cursor-pointer whitespace-nowrap"
+              >
+                Hide
+              </button>
+            )}
+          </div>
+
+          {showTranslated && translatedText && (
+            <div className="mb-4 p-3 rounded-lg bg-surface border border-border text-sm text-muted whitespace-pre-line">
+              {translatedText}
+            </div>
+          )}
 
           {/* Dish Grid */}
           <div className="grid gap-4">

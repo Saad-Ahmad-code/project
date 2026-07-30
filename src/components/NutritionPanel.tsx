@@ -68,7 +68,20 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
                     className="float-right w-[50px] h-[50px] rounded object-cover"
                   />
                 )}
-                <div className="font-semibold mb-1.5 text-emerald-300 text-sm">{r.name}</div>
+                <div className="font-semibold mb-1.5 text-emerald-300 text-sm flex items-center gap-2">
+                  {r.name}
+                  {r.nutri_score && (
+                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[0.65rem] font-bold text-white ${
+                      r.nutri_score === 'A' ? 'bg-green-600' :
+                      r.nutri_score === 'B' ? 'bg-lime-600' :
+                      r.nutri_score === 'C' ? 'bg-yellow-500' :
+                      r.nutri_score === 'D' ? 'bg-orange-500' :
+                      'bg-red-600'
+                    }`}>
+                      {r.nutri_score}
+                    </span>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                   {r.calories !== undefined && (
                     <span><strong>{r.calories}</strong> kcal</span>

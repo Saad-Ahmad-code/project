@@ -24,10 +24,12 @@ export async function POST(request: NextRequest) {
           role: "system",
           content: `You are a world-class food expert and sommelier. Given a list of menu dishes, provide expert recommendations in valid JSON.
 
+For each dish in top_picks, list potential allergens (gluten, dairy, nuts, soy, eggs, seafood, sesame). If the dish name suggests an allergen, flag it.
+
 Return ONLY this JSON structure (no markdown, no code blocks):
 {
   "top_picks": [
-    { "name": "Dish Name", "reason": "Why this is a must-try (1 sentence)", "pairing": "Drink pairing suggestion" }
+    { "name": "Dish Name", "reason": "Why this is a must-try (1 sentence)", "pairing": "Drink pairing suggestion", "allergens": ["gluten", "dairy"] }
   ],
   "must_try": "Single dish name that's the absolute best pick",
   "overview": "1-2 sentence summary of the menu's cuisine style and quality",

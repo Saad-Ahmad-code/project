@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import type { MenuItem } from "@/types/menu";
 
 interface FoodExpertSuggestion {
-  top_picks?: { name: string; reason: string; pairing?: string }[];
+  top_picks?: { name: string; reason: string; pairing?: string; allergens?: string[] }[];
   must_try?: string;
   overview?: string;
   tips?: string[];
@@ -31,6 +31,9 @@ export default function ResultsPage() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // Dietary preferences
+  const [dietPrefs, setDietPrefs] = useState<string[]>([]);
+  const [showPrefs, setShowPrefs] = useState(false);
 
   useEffect(() => {
     if (!params.id) return;
@@ -80,6 +83,30 @@ export default function ResultsPage() {
       setSuggestionsLoading(false);
     }
   };
+
+  const togglePref = (pref: string) => {
+    setDietPrefs((prev) =>
+      prev.includes(pref) ? prev.filter((p) => p !== pref) : [...prev, pref]
+    );
+  };
+
+  const filteredItems = dietPrefs.length === 0
+    ? items
+    : items.filter((item) => {
+        const tags = (item.dietary_tags || []).map((t) => t.toLowerCase());
+        const name = item.name.toLowerCase();
+        const desc = (item.description || "").toLowerCase();
+        const combined = `${name} ${desc} ${tags.join(" ")}`;
+        for (const pref of dietPrefs) {
+          if (pref === "vegetarian" && (combined.includes("meat") || combined.includes("chicken") || combined.includes("beef") || combined.includes("fish") || combined.includes("pork"))) return false;
+          if (pref === "vegan" && (combined.includes("dairy") || combined.includes("cheese") || combined.includes("cream") || combined.includes("milk") || combined.includes("egg") || combined.includes("meat") || combined.includes("honey"))) return false;
+          if (pref === "gluten-free" && (combined.includes("bread") || combined.includes("pasta") || combined.includes("flour") || combined.includes("wheat") || combined.includes("naan") || combined.includes("bun"))) return false;
+          if (pref === "halal" && (combined.includes("pork") || combined.includes("alcohol") || combined.includes("wine"))) return false;
+          if (pref === "low-carb" && (combined.includes("rice") || combined.includes("pasta") || combined.includes("bread") || combined.includes("naan") || combined.includes("potato") || combined.includes("sugar"))) return false;
+          if (pref === "keto" && (combined.includes("rice") || combined.includes("pasta") || combined.includes("bread") || combined.includes("naan") || combined.includes("sugar") || combined.includes("potato") || combined.includes("sweet"))) return false;
+        }
+        return true;
+      });
 
   if (loading) return <main className="max-w-3xl mx-auto p-8"><p className="text-center text-muted">Loading...</p></main>;
   if (error) return <main className="max-w-3xl mx-auto p-8"><p className="text-center text-red-400">{error}</p></main>;
@@ -155,6 +182,15 @@ export default function ResultsPage() {
                     <p className="text-white font-bold text-sm mb-0.5">{pick.name}</p>
                     <p className="text-emerald-100 text-xs mb-0.5">{pick.reason}</p>
                     {pick.pairing && <p className="text-amber-300 text-xs">{pick.pairing}</p>}
+                    {pick.allergens && pick.allergens.length > 0 && (
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {pick.allergens.map((a) => (
+                          <span key={a} className="text-[0.65rem] px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-800">
+                            {a}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -181,9 +217,41 @@ export default function ResultsPage() {
         )}
       </AnimatePresence>
 
+      {/* Dietary Preference Filter */}
+      <div className="mb-4">
+        <button
+          onClick={() => setShowPrefs(!showPrefs)}
+          className="text-sm text-muted hover:text-white transition-colors bg-transparent border border-border rounded-md px-3 py-1.5 cursor-pointer"
+        >
+          {showPrefs ? "Hide Filters" : `Dietary Filters${dietPrefs.length > 0 ? ` (${dietPrefs.length})` : ""}`}
+        </button>
+        {showPrefs && (
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {["vegetarian", "vegan", "gluten-free", "halal", "low-carb", "keto"].map((pref) => (
+              <button
+                key={pref}
+                onClick={() => togglePref(pref)}
+                className={`text-xs px-3 py-1 rounded-full border cursor-pointer transition-colors ${
+                  dietPrefs.includes(pref)
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-surface text-muted border-border hover:text-white"
+                }`}
+              >
+                {pref === 'gluten-free' ? 'Gluten-Free' : pref.charAt(0).toUpperCase() + pref.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
+        {dietPrefs.length > 0 && (
+          <p className="text-xs text-muted mt-2">
+            {filteredItems.length} of {items.length} dishes match your preferences
+          </p>
+        )}
+      </div>
+
       {/* Dish Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {items.map((item, index) => (
+        {filteredItems.map((item, index) => (
           <motion.div
             key={item.id}
             layout
