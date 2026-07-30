@@ -33,19 +33,57 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="max-w-md mx-auto p-8 min-h-screen">
-      <h1 className="text-2xl font-bold mb-6">Login</h1>
-      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        <Button type="submit" disabled={loading} className="w-full">
-          {loading ? "Signing in..." : "Sign In"}
-        </Button>
-      </form>
-      <p className="text-center mt-4 text-sm text-muted">
-        No account? <Link href="/auth/register" className="text-primary">Register</Link>
-      </p>
+    <main className="max-w-md mx-auto p-8 min-h-screen flex flex-col justify-center">
+      <div className="rounded-xl border border-border bg-card p-8">
+        <h1 className="text-2xl font-bold mb-6">Login</h1>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800">
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-1.5">
+            <label htmlFor="login-email" className="text-sm font-medium text-foreground">
+              Email
+            </label>
+            <Input
+              id="login-email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="login-password" className="text-sm font-medium text-foreground">
+              Password
+            </label>
+            <Input
+              id="login-password"
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? "Signing in..." : "Sign In"}
+          </Button>
+        </form>
+
+        <p className="text-center mt-5 text-sm text-muted">
+          No account?{" "}
+          <Link href="/auth/register" className="text-primary hover:text-primary/80 transition-colors">
+            Register
+          </Link>
+        </p>
+      </div>
     </main>
   );
 }

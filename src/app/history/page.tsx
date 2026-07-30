@@ -93,13 +93,15 @@ export default function HistoryPage() {
                     {scan.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right flex gap-2 justify-end">
-                  <Link href={`/results/${scan.id}`} className="text-sm text-primary hover:text-primary/80 transition-colors">
-                    View
-                  </Link>
-                  <Link href={`/compare?a=${scan.id}`} className="text-sm text-muted hover:text-primary transition-colors">
-                    Compare
-                  </Link>
+                <TableCell className="text-right">
+                  <div className="flex gap-2 justify-end">
+                    <Link href={`/results/${scan.id}`} className="text-sm text-primary hover:text-primary/80 transition-colors">
+                      View
+                    </Link>
+                    <Link href={`/compare?a=${scan.id}`} className="text-sm text-muted hover:text-primary transition-colors">
+                      Compare
+                    </Link>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
