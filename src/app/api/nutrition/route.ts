@@ -227,7 +227,12 @@ export async function POST(request: NextRequest) {
     });
 
     if (!res.ok) {
-      logger.warn(`[Nutrition] Open Food Facts returned ${res.status}`);
+      logger.warn(`[Nutrition] Open Food Facts returned ${res.status}, trying USDA fallback...`);
+      const usdaResults = await searchUSDA(searchTerm);
+      if (usdaResults.length > 0) {
+        setCache(cacheKey, usdaResults);
+        return Response.json({ dish_name: dishName, results: usdaResults, cached: false, source: 'usda' });
+      }
       return Response.json({ dish_name: dishName, results: [], error: 'Nutrition service unavailable' });
     }
 
