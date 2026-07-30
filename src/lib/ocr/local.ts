@@ -368,10 +368,20 @@ function isNoiseLine(text: string): boolean {
   if (/(?:order online|delivery|pickup|catering|delivery\s*available)/i.test(t)) return true;
 
   // Customer service / transactional noise
-  if (/^(please|thank you|thanks|enjoy|welcome|ask|inquire)/i.test(lower)) return true;
+  if (/^(please|thank|thanks|enjoy|welcome|ask|inquire)/i.test(lower)) return true;
   if (/(?:pay at|pay upon|counter|cashier|reception)/i.test(lower)) return true;
   if (/(?:allergen|nutrition|ingredients|contains)/i.test(lower)) return true;
   if (/^hotel\b/i.test(lower)) return true;
+
+  // Menu title / header noise (single short non-category headers)
+  if (/^(menu|menus)$/i.test(t.trim())) return true;
+
+  // Standalone venue/branding names that aren't dishes (1-2 words, no price markers)
+  if (/^(restaurant|cafe|café|bistro|grill|grille|lounge|bar|truck|house|deli)$/i.test(t.trim())) return true;
+
+  // URL-like text without dots (OCR can't read dots in URLs)
+  if (/^www[a-z0-9]+(com|org|net|io|us|uk|ca)?$/i.test(t.trim()) && t.includes(".")) return false; // has dots, let domain filter handle
+  if (/^www[a-z]/i.test(t.trim()) && !t.includes(".")) return true; // garbled URL
 
   // Single short word, capitalized, not food-related
   const words = t.split(/\s+/);
@@ -460,7 +470,8 @@ function findPriceInText(text: string): PriceResult | null {
   const t = text.trim();
 
   // $12.99 or $ 12.99 or 12.99 at end of line
-  const trailing = t.match(/(?:^|\s)([$€£¥Rs.]+\s*)?(\d{1,3}(?:[.,]\d{1,2})?)\s*$/);
+  // Also handle Tesseract misreading "$" as "S" (e.g. "S9.99" or "Margherita S9.99")
+  const trailing = t.match(/(?:^|\s)([$€£¥RsSs.]+\s*)?(\d{1,3}(?:[.,]\d{1,2})?)\s*$/);
   if (trailing) {
     const price = normalizePrice(trailing[0]);
     if (price !== null && price < 2000) {
@@ -548,6 +559,12 @@ function cleanDishName(raw: string): string {
 
   // Stage 6: Strip trailing "NEW" "SPICY" etc
   name = name.replace(/\s+(NEW|SPICY|HOT|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE)$/i, "").trim();
+
+  // Stage 6b: Strip trailing single "S" — Tesseract often misreads "$" as "S"
+  // Only when it's the last character preceded by a space
+  if (name.length > 3) {
+    name = name.replace(/\s+S$/, "").trim();
+  }
 
   // Stage 7: Collapse multiple spaces
   name = name.replace(/\s+/g, " ").trim();
@@ -689,6 +706,16 @@ function basicExtract(raw_text: string): LocalOCRItem[] {
 
     if (!name || wordCount < 2 || wordCount > 25) continue;
     if (!/[a-zA-Z]{3,}/.test(name)) continue;
+
+    // Skip category headers in flat menus (lines with no price that are category names)
+    if (!price && wordCount <= 4) {
+      const nameLower = name.toLowerCase().trim();
+      if (CATEGORY_KEYWORDS.has(nameLower) || CATEGORY_KEYWORDS.has(nameLower.replace(/s$/, ""))) continue;
+      // Also skip all-caps short lines with no price and no food words
+      const nameWords = nameLower.split(/\s+/);
+      const hasFoodWord = nameWords.some(w => isFoodRelated(w));
+      if (!hasFoodWord && wordCount <= 3 && name === name.toUpperCase()) continue;
+    }
 
     // Clean and validate
     name = cleanDishName(name);
@@ -1327,12 +1354,22 @@ function crossValidate(items: LocalOCRItem[]): LocalOCRItem[] {
   // Collect all prices
   const prices = items.filter(i => i.price !== undefined).map(i => i.price as number);
   if (prices.length >= 3) {
+    const sorted = [...prices].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
     const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
     const variance = prices.reduce((s, p) => s + (p - mean) ** 2, 0) / prices.length;
     const stdDev = Math.sqrt(variance);
 
     // Flag items with prices > 3σ from mean as likely OCR errors
-    // But don't remove — just reduce confidence (already applied)
+    // These are usually digit insertion errors (€4.99 → €64.99)
+    const lowerBound = mean - 3 * stdDev;
+    const upperBound = mean + 3 * stdDev;
+    for (const item of items) {
+      if (item.price !== undefined && (item.price < lowerBound || item.price > upperBound)) {
+        // Remove the price — it's almost certainly corrupted by OCR
+        item.price = undefined;
+      }
+    }
   }
 
   // Deduplicate items with 80%+ word overlap
