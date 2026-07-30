@@ -774,3 +774,6 @@ export async function chatCompletions(opts: ChatOptions): Promise<{ choices: { m
 export async function callVisionOCR(imageBuffer: ArrayBuffer, prompt: string): Promise<string> {
   return callGeminiVision(imageBuffer, prompt);
 }
+
+// ── Exported: pythonOCR (for use by OCR engine layer 3) ──
+export { pythonOCR };

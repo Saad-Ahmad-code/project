@@ -26,6 +26,9 @@ export const db = {
   update<T = any>(collection: string, id: string, updates: any): T | null {
     _db(collection).updateOne({ id }, { $set: updates });
     return _db(collection).findOne({ id }) as T | null;
+  },
+  deleteOne(collection: string, query: any) {
+    return _db(collection).deleteOne(query);
   }
 };
 
