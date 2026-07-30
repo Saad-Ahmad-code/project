@@ -11,7 +11,7 @@ const nextConfig = {
       bodySizeLimit: '10mb',
     },
   },
-  serverExternalPackages: ['mongodb', 'tesseract.js', 'sharp'],
+  serverExternalPackages: ['tesseract.js', 'sharp'],
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

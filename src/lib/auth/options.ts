@@ -1,9 +1,9 @@
+/**
+ * NextAuth options — uses local JSON storage (no MongoDB needed)
+ */
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { MongoClient } from "mongodb";
 import bcrypt from "bcryptjs";
-
-const MONGODB_URI = process.env.MONGODB_URI || "";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -17,26 +17,20 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
 
         try {
-          if (!MONGODB_URI) return null;
-          const client = await MongoClient.connect(MONGODB_URI);
-          try {
-            const db = client.db(process.env.MONGODB_DB || "menulens");
-            const users = db.collection("users");
+          const { db } = await import("@/lib/mongodb");
+          const users = db("users");
 
-            const user = await users.findOne({ email: credentials.email.toLowerCase() });
-            if (!user) return null;
+          const user = users.findOne({ email: credentials.email.toLowerCase() });
+          if (!user) return null;
 
-            const valid = await bcrypt.compare(credentials.password, user.password);
-            if (!valid) return null;
+          const valid = await bcrypt.compare(credentials.password, user.password);
+          if (!valid) return null;
 
-            return {
-              id: user._id.toString(),
-              email: user.email,
-              name: user.name || user.email.split("@")[0],
-            };
-          } finally {
-            await client.close();
-          }
+          return {
+            id: user._id || user.id,
+            email: user.email,
+            name: user.name || user.email.split("@")[0],
+          };
         } catch {
           return null;
         }
