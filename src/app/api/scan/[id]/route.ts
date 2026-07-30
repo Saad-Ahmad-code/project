@@ -6,7 +6,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const { id } = await params;
     const database = await getDatabase();
-    const scan = await database.collection("scans").findOne({ id });
+    const scan = await database.collection("scans").findOne({ _id: id });
     const items = await database.collection("dishes").find({ scan_id: id }).toArray();
     return NextResponse.json({ scan, items });
   } catch {

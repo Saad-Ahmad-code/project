@@ -12,6 +12,7 @@ import { logger } from '@/lib/logger';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth/options';
 import { db, storage } from '@/lib/storage';
+import { db as mongodb } from '@/lib/mongodb';
 import { enqueueAndProcessInBackground } from '@/lib/agent/queue';
 import type { MenuItem } from '@/types/menu';
 import type { OCRItem } from '@/lib/ocr/engine';
@@ -103,16 +104,7 @@ export async function POST(request: NextRequest) {
           // ── Step 2: Save to DB ──
           let scanId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-          try {
-            const result = await storage.saveScan(userId, '', ocrResult.raw_text, ocrResult.items);
-            if (result?.insertedId) {
-              scanId = result.insertedId;
-            }
-          } catch {
-            logger.warn('Failed to persist scan, continuing without DB');
-          }
-
-          // Create items
+          // Create items with stable IDs
           const items: MenuItem[] = ocrResult.items.map((item: OCRItem, index: number) => ({
             id: `${scanId}-${index}-${Date.now().toString(36)}`,
             name: item.name,
@@ -124,6 +116,20 @@ export async function POST(request: NextRequest) {
             scan_id: scanId,
             created_at: new Date().toISOString(),
           }));
+
+          try {
+            const result = await storage.saveScan(userId, '', ocrResult.raw_text, ocrResult.items);
+            if (result?.insertedId) {
+              scanId = result.insertedId;
+            }
+            // Persist individual dish documents (GET /api/scan/[id] queries dishes collection)
+            for (const dish of items) {
+              dish.scan_id = scanId;
+              mongodb('dishes').insertOne(dish);
+            }
+          } catch {
+            logger.warn('Failed to persist scan, continuing without DB');
+          }
 
           send('status', {
             status: 'saved',
