@@ -716,9 +716,9 @@ function basicExtract(raw_text: string): LocalOCRItem[] {
       name = cleaned.replace(/^[$€£¥Rs.]+\s*\d+(?:[.,]\d+)?\s+/, "").trim();
     }
 
-    if (!name || wordCount < 2 || wordCount > 25) continue;
+    if (!name || wordCount > 25) continue;
     if (!/[a-zA-Z]{3,}/.test(name)) continue;
-    // Require at least 50% of individual words to have 3+ letters (reject garbled OCR)
+    // Require at least 60% of individual words to have 3+ letters (reject garbled OCR)
     if (!hasSufficientRealWords(name)) continue;
 
     // Skip category headers in flat menus (lines with no price that are category names)
@@ -854,7 +854,7 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
       // Validate name
       name = cleanDishName(name);
       const words = name.split(/\s+/);
-      if (name.length < 3 || words.length < 2) continue;
+      if (name.length < 3) continue;
       if (!/[a-zA-Z]{3,}/.test(name)) continue;
       if (!hasSufficientRealWords(name)) continue;
       if (isNoiseLine(name)) continue;
@@ -1102,7 +1102,7 @@ function parseColumn(column: Column): ParsedDish[] {
       if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
 
       const cleaned = cleanDishName(nameText);
-      if (cleaned.length >= 3 && words >= 2 && !isNoiseLine(cleaned)) {
+      if (cleaned.length >= 3 && words >= 1 && !isNoiseLine(cleaned)) {
         const conf = computeConfidence(true, cleaned, currentCategory, line.isCentered, line.isAllCaps, layout);
         pendingDish = {
           name: cleaned,
@@ -1116,7 +1116,7 @@ function parseColumn(column: Column): ParsedDish[] {
     }
 
     // No price on this line
-    if (words >= 2 && words <= 25 && /[a-zA-Z]{3,}/.test(nameText)) {
+    if (words >= 1 && words <= 25 && /[a-zA-Z]{3,}/.test(nameText)) {
       const cleaned = cleanDishName(nameText);
       if (cleaned.length < 3) continue;
 
