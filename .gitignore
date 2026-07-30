@@ -6,3 +6,4 @@ node_modules/
 eng.traineddata
 .env.local
 data/
+.kilo/

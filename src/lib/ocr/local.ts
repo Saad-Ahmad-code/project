@@ -85,8 +85,8 @@ type MenuLayout = "descriptive" | "compact" | "fastfood" | "unknown";
 
 const CATEGORY_KEYWORDS = new Set([
   // Course / meal type
-  "appetizers", "starters", "entrees", "mains", "main course", "main courses",
-  "soups", "salads", "sides", "extras", "desserts", "dessert",
+  "appetizers", "starters", "entrees", "mains", "soups", "salads", "sides", "extras",
+  "main course", "main courses", "desserts", "dessert", "drinks", "beverages",
   "lunch", "dinner", "breakfast", "brunch", "supper",
   // Cuisines / styles
   "pizza", "pizzas", "pasta", "pastas", "pasta dishes",
@@ -360,6 +360,11 @@ function isNoiseLine(text: string): boolean {
   // Social / footer
   if (/(?:follow|find|visit|connect)\s+us/i.test(t)) return true;
   if (/(?:order online|delivery|pickup|catering|delivery\s*available)/i.test(t)) return true;
+
+  // Customer service / transactional noise
+  if (/^(please|thank you|thanks|enjoy|welcome|ask|inquire)/i.test(lower)) return true;
+  if (/(?:pay at|pay upon|counter|cashier|reception)/i.test(lower)) return true;
+  if (/(?:allergen|nutrition|ingredients|contains)/i.test(lower)) return true;
 
   // Single short word, capitalized, not food-related
   const words = t.split(/\s+/);
