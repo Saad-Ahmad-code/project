@@ -4,6 +4,8 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,20 +24,16 @@ export default function LoginPage() {
   };
 
   return (
-    <main style={{ maxWidth: 400, margin: "0 auto", padding: "2rem" }}>
-      <h1 style={{ marginBottom: "1rem" }}>Login</h1>
-      {error && <p style={{ color: "#f87171", marginBottom: "1rem" }}>{error}</p>}
-      <form onSubmit={handleSubmit}>
-        <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required
-          style={{ width: "100%", padding: "0.75rem", marginBottom: "0.75rem", background: "#111", border: "1px solid #333", borderRadius: 8, color: "#e0e0e0" }} />
-        <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required
-          style={{ width: "100%", padding: "0.75rem", marginBottom: "1rem", background: "#111", border: "1px solid #333", borderRadius: 8, color: "#e0e0e0" }} />
-        <button type="submit" style={{ width: "100%", padding: "0.75rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, fontSize: "1rem" }}>
-          Sign In
-        </button>
+    <main className="max-w-md mx-auto p-8">
+      <h1 className="text-2xl font-bold mb-6">Login</h1>
+      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <Button type="submit" className="w-full">Sign In</Button>
       </form>
-      <p style={{ textAlign: "center", marginTop: "1rem", color: "#666" }}>
-        No account? <Link href="/auth/register" style={{ color: "#60a5fa" }}>Register</Link>
+      <p className="text-center mt-4 text-sm text-muted">
+        No account? <Link href="/auth/register" className="text-primary">Register</Link>
       </p>
     </main>
   );

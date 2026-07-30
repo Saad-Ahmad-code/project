@@ -175,7 +175,7 @@ export default function ResultsPage() {
         </div>
       )}
 
-      <div style={{ display: "grid", gap: "1rem" }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {items.map((item) => (
           <div key={item.id} onClick={() => openDishImages(item)} style={{ cursor: "pointer" }}>
             <DishCard

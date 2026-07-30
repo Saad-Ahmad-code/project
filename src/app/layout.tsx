@@ -4,6 +4,7 @@ import { Navbar } from "@/components/ui/Navbar";
 import "./globals.css";
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
+import { Toaster } from "@/components/ui/sonner";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <Providers>
           <Navbar />
+          <Toaster position="bottom-right" />
           {children}
         </Providers>
       </body>

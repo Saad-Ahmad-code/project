@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -31,22 +33,17 @@ export default function RegisterPage() {
   };
 
   return (
-    <main style={{ maxWidth: 400, margin: "0 auto", padding: "2rem" }}>
-      <h1 style={{ marginBottom: "1rem" }}>Register</h1>
-      {error && <p style={{ color: "#f87171", marginBottom: "1rem" }}>{error}</p>}
-      <form onSubmit={handleSubmit}>
-        <input type="text" placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)}
-          style={{ width: "100%", padding: "0.75rem", marginBottom: "0.75rem", background: "#111", border: "1px solid #333", borderRadius: 8, color: "#e0e0e0" }} />
-        <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required
-          style={{ width: "100%", padding: "0.75rem", marginBottom: "0.75rem", background: "#111", border: "1px solid #333", borderRadius: 8, color: "#e0e0e0" }} />
-        <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required
-          style={{ width: "100%", padding: "0.75rem", marginBottom: "1rem", background: "#111", border: "1px solid #333", borderRadius: 8, color: "#e0e0e0" }} />
-        <button type="submit" style={{ width: "100%", padding: "0.75rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, fontSize: "1rem" }}>
-          Register
-        </button>
+    <main className="max-w-md mx-auto p-8">
+      <h1 className="text-2xl font-bold mb-6">Register</h1>
+      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input type="text" placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <Button type="submit" className="w-full">Register</Button>
       </form>
-      <p style={{ textAlign: "center", marginTop: "1rem", color: "#666" }}>
-        Already have an account? <Link href="/auth/login" style={{ color: "#60a5fa" }}>Login</Link>
+      <p className="text-center mt-4 text-sm text-muted">
+        Already have an account? <Link href="/auth/login" className="text-primary">Login</Link>
       </p>
     </main>
   );

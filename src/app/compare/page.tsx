@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 interface DishComparison {
   name: string;
@@ -42,34 +45,49 @@ export default function ComparePage() {
   };
 
   return (
-    <main style={{ maxWidth: 800, margin: "0 auto", padding: "2rem" }}>
-      <h1 style={{ marginBottom: "1rem" }}>Compare Scans</h1>
+    <main className="max-w-3xl mx-auto p-8">
+      <h1 className="text-2xl font-bold mb-6">Compare Scans</h1>
 
-      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem" }}>
-        <input placeholder="Scan ID 1" value={scanId} onChange={(e) => setScanId(e.target.value)}
-          style={{ flex: 1, padding: "0.75rem", background: "#111", border: "1px solid #333", borderRadius: 8, color: "#e0e0e0" }} />
-        <input placeholder="Scan ID 2" value={targetId} onChange={(e) => setTargetId(e.target.value)}
-          style={{ flex: 1, padding: "0.75rem", background: "#111", border: "1px solid #333", borderRadius: 8, color: "#e0e0e0" }} />
-        <button onClick={handleCompare} disabled={loading}
-          style={{ padding: "0.75rem 1.5rem", background: "#2563eb", color: "#fff", border: "none", borderRadius: 8 }}>
+      <div className="flex gap-3 mb-4">
+        <Input
+          placeholder="Scan ID 1"
+          value={scanId}
+          onChange={(e) => setScanId(e.target.value)}
+        />
+        <Input
+          placeholder="Scan ID 2"
+          value={targetId}
+          onChange={(e) => setTargetId(e.target.value)}
+        />
+        <Button onClick={handleCompare} disabled={loading}>
           {loading ? "Loading..." : "Compare"}
-        </button>
+        </Button>
       </div>
 
-      {error && <p style={{ color: "#f87171", marginBottom: "1rem" }}>{error}</p>}
+      {error && (
+        <p className="text-red-400 text-sm mb-4">{error}</p>
+      )}
 
       {data && (
-        <div style={{ background: "#111", borderRadius: 12, padding: "1.5rem" }}>
-          <h2 style={{ marginBottom: "1rem" }}>{data.label}</h2>
-          <div style={{ display: "grid", gap: "0.75rem" }}>
-            {data.dishes.map((d, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid #222" }}>
-                <Link href={`/results/${d.scan_id}`} style={{ color: "#e0e0e0" }}>{d.name}</Link>
-                <span style={{ color: "#4ade80" }}>{d.price !== undefined && d.price !== null ? `$${d.price.toFixed(2)}` : "-"}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>{data.label}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-border">
+              {data.dishes.map((d, i) => (
+                <div key={i} className="flex justify-between items-center py-3">
+                  <Link href={`/results/${d.scan_id}`} className="text-sm hover:text-primary transition-colors">
+                    {d.name}
+                  </Link>
+                  <span className="text-accent font-medium text-sm">
+                    {d.price !== undefined && d.price !== null ? `$${d.price.toFixed(2)}` : "-"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </main>
   );
