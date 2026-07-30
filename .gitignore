@@ -7,3 +7,5 @@ eng.traineddata
 .env.local
 data/
 .kilo/
+*.jpg
+*.png
