@@ -35,7 +35,6 @@ function extractDishesFromText(raw_text: string): LocalOCRItem[] {
     const cleaned = line.replace(/[|]/g, " ").replace(/\s+/g, " ").trim();
     const priceMatch = cleaned.match(/(?:\$\s*)?(\d{1,2}(?:\.\d{1,2})?)\s*$/);
     const hasLetters = /[a-zA-Z]/.test(cleaned);
-    const hasDigits = /\d/.test(cleaned);
     const wordCount = cleaned.split(/\s+/).length;
 
     if (
@@ -70,12 +69,16 @@ function isNoiseLine(line: string): boolean {
   const noisePatterns = [
     /^(tax|tip|total|subtotal|balance|gratuity)\b/i,
     /^(phone|tel|fax|email|address|hours|open|closed)\b/i,
+    /^(order|delivery|pickup|catering|reservation|booking|gift)\b/i,
     /^(www\.|https?:\/\/|@)/i,
     /^\d{3,}[.\-\s]?\d{3,}[.\-\s]?\d{4,}$/,
     /^(mon|tue|wed|thu|fri|sat|sun)\b/i,
     /^(visa|mastercard|amex|cash|credit|debit)/i,
     /^(wifi|password|internet)/i,
     /^(minimum|minimum delivery)/i,
+    /^follow us|^find us|^connect/i,
+    /^powered by|^copyright|^all rights|^page \d+ (of|\/)/i,
+    /(?:^|\s)(?:www\.|[a-z0-9.-]+\.(?:com|org|net|io|app|me|us|co|uk|ca)\b)/i,
   ];
 
   if (noisePatterns.some((p) => p.test(line))) return true;
@@ -84,6 +87,12 @@ function isNoiseLine(line: string): boolean {
   const garbageWords = ["page", "menu", "our", "the", "and", "with", "for", "from"];
   const garbageHits = words.filter((w) => garbageWords.includes(w.toLowerCase())).length;
   if (garbageHits > words.length * 0.6 && words.length <= 3) return true;
+
+  // Reject lines containing a common domain pattern anywhere (e.g. "Visit menulens.com")
+  if (/[a-z0-9][a-z0-9.-]*\.(com|org|net|io|app|me|us|co|uk|ca)(?:\/[^\s]*)?(?:\s|$)/i.test(line)) return true;
+
+  // Reject short lines that look like proper branding (capitalized, no price)
+  if (words.length <= 2 && !/\d/.test(line) && /^[A-Z][a-z]+('s?[A-Z][a-z]+)*$/.test(line.trim())) return true;
 
   return false;
 }
@@ -103,7 +112,12 @@ function isSectionHeader(line: string): boolean {
 }
 
 function isFooterLine(line: string): boolean {
-  return /(\d{3}[.\-\s]\d{3}[.\-\s]\d{4})/.test(line) || /@[a-z0-9.-]+\.[a-z]{2,}/i.test(line);
+  return (
+    /(\d{3}[.\-\s]\d{3}[.\-\s]\d{4})/.test(line) ||
+    /@[a-z0-9.-]+\.[a-z]{2,}/i.test(line) ||
+    /(?:follow|find|visit|connect)\s+us/i.test(line) ||
+    /(?:order online|delivery|pickup|catering|delivery\s+available)/i.test(line)
+  );
 }
 
 function guessCategory(name: string): string {
