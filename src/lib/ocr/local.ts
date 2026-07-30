@@ -527,6 +527,14 @@ function cleanDishName(raw: string): string {
   // Stage 5d: Strip other noise characters (pipes, backticks, tildes, carets)
   name = name.replace(/[|`~^\\/]/g, " ").replace(/\s+/g, " ").trim();
 
+  // Stage 5e: Handle dots — collapse multiple dots, strip leading/trailing,
+  // and replace space-surrounded dots with space ("Chicken . Burger" → "Chicken Burger").
+  name = name.replace(/\.{2,}/g, " ").replace(/\s+/g, " ").trim();    // multiple dots → space
+  name = name.replace(/^\s*\.\s*/, "").trim();                         // leading dot
+  name = name.replace(/\s*\.\s*$/, "").trim();                         // trailing dot
+  name = name.replace(/\s+\.\s+/g, " ").trim();                        // "word . word" → "word word"
+  name = name.replace(/\./g, " ").replace(/\s+/g, " ").trim();        // remaining single dots → space
+
   // Stage 6: Strip trailing "NEW" "SPICY" etc
   name = name.replace(/\s+(NEW|SPICY|HOT|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE)$/i, "").trim();
 
