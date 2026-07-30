@@ -56,6 +56,12 @@ interface Column {
   xMax: number;
 }
 
+interface ParagraphInfo {
+  text: string;
+  words: WordPos[];
+  lines: TextLine[];
+}
+
 interface PriceResult {
   price: number;
   raw: string;
@@ -1144,6 +1150,130 @@ function isDescriptionLine(text: string): boolean {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  PARAGRAPH-AWARE PARSE — uses Tesseract's own layout segmentation
+//  Each Tesseract paragraph = a logical block.
+//  We reuse groupIntoLines + parseColumn per paragraph.
+// ═══════════════════════════════════════════════════════════════════
+
+interface TesseractPara {
+  text?: string;
+  lines?: Array<{ text?: string; words?: Array<{ text?: string; bbox?: { x0: number; y0: number; x1: number; y1: number }; confidence?: number }> }>;
+  words?: Array<{ text?: string; bbox?: { x0: number; y0: number; x1: number; y1: number }; confidence?: number }>;
+}
+
+function extractParagraphs(resultData: any): ParagraphInfo[] {
+  const paragraphs: ParagraphInfo[] = [];
+
+  // Try direct data.paragraphs first (Tesseract.js v7+)
+  const directParas: TesseractPara[] = resultData.paragraphs;
+  if (directParas && directParas.length > 0) {
+    for (const para of directParas) {
+      const paraText = (para.text || "").trim();
+      if (!paraText) continue;
+
+      // Extract words from paragraph (either direct or via lines)
+      const rawWords = para.words || [];
+      const words: WordPos[] = rawWords.map((w: any) => ({
+        text: w.text || "",
+        x: w.bbox?.x0 ?? 0,
+        y: w.bbox?.y0 ?? 0,
+        w: (w.bbox?.x1 ?? 0) - (w.bbox?.x0 ?? 0),
+        h: (w.bbox?.y1 ?? 0) - (w.bbox?.y0 ?? 0),
+        confidence: w.confidence ?? 0,
+      }));
+
+      if (words.length > 0) {
+        const lines = groupIntoLines(words);
+        paragraphs.push({ text: paraText, words, lines });
+      }
+    }
+    if (paragraphs.length > 0) return paragraphs;
+  }
+
+  // Fallback: extract from blocks → paragraphs
+  const blocks: Array<{ text?: string; paragraphs?: TesseractPara[] }> = resultData.blocks;
+  if (blocks) {
+    for (const block of blocks) {
+      const blockParas = block.paragraphs;
+      if (!blockParas) continue;
+      for (const para of blockParas) {
+        const paraText = (para.text || "").trim();
+        if (!paraText) continue;
+
+        const rawWords = para.words || [];
+        const words: WordPos[] = rawWords.map((w: any) => ({
+          text: w.text || "",
+          x: w.bbox?.x0 ?? 0,
+          y: w.bbox?.y0 ?? 0,
+          w: (w.bbox?.x1 ?? 0) - (w.bbox?.x0 ?? 0),
+          h: (w.bbox?.y1 ?? 0) - (w.bbox?.y0 ?? 0),
+          confidence: w.confidence ?? 0,
+        }));
+
+        if (words.length > 0) {
+          const lines = groupIntoLines(words);
+          paragraphs.push({ text: paraText, words, lines });
+        }
+      }
+    }
+  }
+
+  return paragraphs;
+}
+
+function paragraphAwareParse(paragraphs: ParagraphInfo[], rawText: string): LocalOCRItem[] {
+  if (paragraphs.length < 2) {
+    // Not enough paragraphs — fall back to word-level
+    return smartParse(rawText, paragraphs[0]?.words || []);
+  }
+
+  const allDishes: ParsedDish[] = [];
+  let sourceIndex = 0;
+
+  for (const para of paragraphs) {
+    if (para.lines.length === 0) continue;
+
+    // Each paragraph is its own "column" (menu section)
+    const column: Column = {
+      lines: para.lines,
+      xMin: Math.min(...para.lines.map(l => l.x)),
+      xMax: Math.max(...para.lines.map(l => l.x + l.w)),
+    };
+
+    const columnDishes = parseColumn(column);
+    for (const dish of columnDishes) {
+      dish.sourceIndex = sourceIndex++;
+    }
+    allDishes.push(...columnDishes);
+  }
+
+  // Apply adaptive threshold + dedup (same as smartParse)
+  const threshold = dynamicThreshold(allDishes);
+  const seen = new Set<string>();
+  const items: LocalOCRItem[] = [];
+
+  for (const dish of allDishes.sort((a, b) => a.sourceIndex - b.sourceIndex)) {
+    const key = dish.name.toLowerCase().trim();
+    if (key.length < 3 || seen.has(key)) continue;
+    seen.add(key);
+
+    const corrected = correctOCRErrors(dish.name).trim();
+    if (corrected.length < 3 || isNoiseLine(corrected + " x")) continue;
+    if (!/[a-zA-Z]{3,}/.test(corrected)) continue;
+    if (dish.confidence < threshold) continue;
+
+    items.push({
+      name: corrected.slice(0, 200),
+      description: dish.description ? correctOCRErrors(dish.description).trim().slice(0, 500) : "",
+      price: dish.price,
+      category: dish.category || "other",
+    });
+  }
+
+  return items;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  POSITIONAL SMART PARSE (Layer 1 orchestrator)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -1248,35 +1378,47 @@ export async function runLocalOCR(
   });
 
   const raw_text = result.data.text || "";
-  const words: WordPos[] = ((result.data as any).words || []).map((w: any) => ({
-    text: w.text || "",
-    x: w.bbox?.x0 ?? 0,
-    y: w.bbox?.y0 ?? 0,
-    w: (w.bbox?.x1 ?? 0) - (w.bbox?.x0 ?? 0),
-    h: (w.bbox?.y1 ?? 0) - (w.bbox?.y0 ?? 0),
-    confidence: w.confidence ?? 0,
-  }));
+  const rawWords: any[] = (result.data as any).words || [];
+
+  // Filter low-confidence words BEFORE any parsing
+  const words: WordPos[] = rawWords
+    .filter((w: any) => (w.confidence ?? 0) >= 25) // filter garbage OCR
+    .map((w: any) => ({
+      text: w.text || "",
+      x: w.bbox?.x0 ?? 0,
+      y: w.bbox?.y0 ?? 0,
+      w: (w.bbox?.x1 ?? 0) - (w.bbox?.x0 ?? 0),
+      h: (w.bbox?.y1 ?? 0) - (w.bbox?.y0 ?? 0),
+      confidence: w.confidence ?? 0,
+    }));
 
   let items: LocalOCRItem[];
 
-  // Determine the best extraction layer
-  if (words.length > 3) {
-    // Check if word positions are actually usable (non-zero coordinates)
+  // Extract paragraph-level structure from Tesseract
+  const paragraphs = extractParagraphs(result.data);
+
+  // Layer 1: Paragraph-aware parser (uses Tesseract's own text grouping)
+  // Preferred when we have 2+ paragraphs with good word data
+  const hasParaWords = paragraphs.some(p => p.words.length >= 3);
+  if (paragraphs.length >= 2 && hasParaWords) {
+    items = paragraphAwareParse(paragraphs, raw_text);
+  }
+  // Layer 2: Positional parser (word bbox data)
+  else if (words.length > 3) {
     const hasPositionData = words.some(w => w.x !== 0 || w.y !== 0);
     const hasGoodConfidence = words.filter(w => w.confidence > 50).length >= 3;
-
     if (hasPositionData && hasGoodConfidence) {
-      // Layer 1: Positional parser
       items = smartParse(raw_text, words);
     } else {
-      // Layer 2: Sequential parser (blank-line blocks)
       items = sequentialParse(raw_text);
     }
-  } else if (raw_text.split(/\n\s*\n/).length >= 2) {
-    // Layer 2: Has blank-line structure
+  }
+  // Layer 3: Sequential parser (blank-line blocks)
+  else if (raw_text.split(/\n\s*\n/).length >= 2) {
     items = sequentialParse(raw_text);
-  } else {
-    // Layer 3: Basic fallback
+  }
+  // Layer 4: Basic fallback
+  else {
     items = basicExtract(raw_text);
   }
 
