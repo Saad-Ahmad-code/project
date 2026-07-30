@@ -9,3 +9,6 @@ data/
 .kilo/
 *.jpg
 *.png
+test_menus/
+test_*.py
+test_*.js
