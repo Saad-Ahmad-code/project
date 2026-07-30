@@ -365,6 +365,7 @@ function isNoiseLine(text: string): boolean {
   if (/^(please|thank you|thanks|enjoy|welcome|ask|inquire)/i.test(lower)) return true;
   if (/(?:pay at|pay upon|counter|cashier|reception)/i.test(lower)) return true;
   if (/(?:allergen|nutrition|ingredients|contains)/i.test(lower)) return true;
+  if (/^hotel\b/i.test(lower)) return true;
 
   // Single short word, capitalized, not food-related
   const words = t.split(/\s+/);
@@ -497,7 +498,7 @@ function cleanDishName(raw: string): string {
 
   // Stage 2: Strip prefix modifiers
   name = name
-    .replace(/^(NEW|NEW!|SPICY|HOT!|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE|HOUSE|HOMEMADE|FRESH|ORGANIC|GRILLED|ROASTED|SMOKED)\s+/i, "")
+    .replace(/^(NEW|NEW!|SPICY|HOT!|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE|HOUSE|HOMEMADE|FRESH|ORGANIC|GRILLED|ROASTED|SMOKED|HOTEL|RESTAURANT|CAFE|CAFÉ|BAR|LOUNGE|GRILL|GRILLE|BISTRO)\s+/i, "")
     .trim();
 
   // Stage 3: Strip allergen/dietary tags like [GF] [V] [VG] (gf) (v)
@@ -524,10 +525,14 @@ function cleanDishName(raw: string): string {
   name = name.replace(/\s+[-–—]+\s+/g, " ").trim();             // "Chicken - Burger" → "Chicken Burger"
   name = name.replace(/^[-–—]+\s+/, "").trim();                 // "- Chicken" → "Chicken"
 
-  // Stage 5d: Strip other noise characters (pipes, backticks, tildes, carets)
+  // Stage 5d: Strip other noise characters — symbols, brackets, operators
+  name = name.replace(/[*>{<}%]/g, " ").replace(/\s+/g, " ").trim();
   name = name.replace(/[|`~^\\/]/g, " ").replace(/\s+/g, " ").trim();
 
-  // Stage 5e: Handle dots — collapse multiple dots, strip leading/trailing,
+  // Stage 5e: Strip lone parentheses and mixed brackets that aren't tag-like
+  name = name.replace(/[(){}[\]]/g, " ").replace(/\s+/g, " ").trim();
+
+  // Stage 5f: Handle dots — collapse multiple dots, strip leading/trailing,
   // and replace space-surrounded dots with space ("Chicken . Burger" → "Chicken Burger").
   name = name.replace(/\.{2,}/g, " ").replace(/\s+/g, " ").trim();    // multiple dots → space
   name = name.replace(/^\s*\.\s*/, "").trim();                         // leading dot
