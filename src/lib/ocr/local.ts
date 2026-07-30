@@ -606,6 +606,18 @@ function classifyMenuText(rawText: string): { priceRatio: number; avgLineLen: nu
   return { priceRatio: priceLines / lines.length, avgLineLen: totalLen / lines.length };
 }
 
+// ── Validate that a candidate dish name has enough real words ──
+// Required: at least 60% of words contain 3+ consecutive letters.
+// Also: at least 2 words must meet this threshold for multi-word names.
+// This prevents garbled OCR text like "fin re it ell" from passing.
+function hasSufficientRealWords(name: string): boolean {
+  const words = name.split(/\s+/);
+  if (words.length === 0) return false;
+  const realWords = words.filter(w => /[a-zA-Z]{3,}/.test(w));
+  const threshold = Math.max(1, Math.ceil(words.length * 0.6));
+  return realWords.length >= threshold;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  UTILITY: Adaptive confidence computation
 // ═══════════════════════════════════════════════════════════════════
@@ -706,6 +718,8 @@ function basicExtract(raw_text: string): LocalOCRItem[] {
 
     if (!name || wordCount < 2 || wordCount > 25) continue;
     if (!/[a-zA-Z]{3,}/.test(name)) continue;
+    // Require at least 50% of individual words to have 3+ letters (reject garbled OCR)
+    if (!hasSufficientRealWords(name)) continue;
 
     // Skip category headers in flat menus (lines with no price that are category names)
     if (!price && wordCount <= 4) {
@@ -842,6 +856,7 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
       const words = name.split(/\s+/);
       if (name.length < 3 || words.length < 2) continue;
       if (!/[a-zA-Z]{3,}/.test(name)) continue;
+      if (!hasSufficientRealWords(name)) continue;
       if (isNoiseLine(name)) continue;
 
       // For fastfood layout without price, require at least one food word
@@ -1287,6 +1302,7 @@ function paragraphAwareParse(paragraphs: ParagraphInfo[], rawText: string): Loca
     const corrected = correctOCRErrors(dish.name).trim();
     if (corrected.length < 3 || isNoiseLine(corrected + " x")) continue;
     if (!/[a-zA-Z]{3,}/.test(corrected)) continue;
+    if (!hasSufficientRealWords(corrected)) continue;
     if (dish.confidence < threshold) continue;
 
     items.push({
@@ -1329,6 +1345,7 @@ function smartParse(rawText: string, words: WordPos[]): LocalOCRItem[] {
     const corrected = correctOCRErrors(dish.name).trim();
     if (corrected.length < 3 || isNoiseLine(corrected + " x")) continue;
     if (!/[a-zA-Z]{3,}/.test(corrected)) continue;
+    if (!hasSufficientRealWords(corrected)) continue;
 
     // Cross-validation: if this dish confidence is far below median, skip
     if (dish.confidence < threshold) continue;
