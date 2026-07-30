@@ -509,9 +509,23 @@ function cleanDishName(raw: string): string {
   // Stage 4: Strip leading numbers like "1.", "1)", "1 Chicken Burger"
   name = name.replace(/^\d+[.)\s]+/, "").trim();
 
-  // Stage 5: Strip size-only suffixes when they follow other size markers
-  // Keep "Small Pizza" but strip trailing ",,;" etc
+  // Stage 5: Strip trailing punctuation like ,; etc
   name = name.replace(/[;,]+$/, "").trim();
+
+  // Stage 5b: Replace underscores with spaces (OCR noise)
+  name = name.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+
+  // Stage 5c: Strip decorative dashes — remove leading/trailing hyphens,
+  // multiple consecutive dashes, and dashes ONLY when they have adjacent spaces.
+  // Keep single inner hyphens for legitimate names like "T-bone" or "Extra-Crunchy".
+  name = name.replace(/^[-–—]+/, "").trim();                    // leading: "-Chicken" → "Chicken"
+  name = name.replace(/[-–—]+$/, "").trim();                    // trailing: "Chicken-" → "Chicken"
+  name = name.replace(/[-–—]{2,}/g, " ").replace(/\s+/g, " ").trim();  // double dash → space
+  name = name.replace(/\s+[-–—]+\s+/g, " ").trim();             // "Chicken - Burger" → "Chicken Burger"
+  name = name.replace(/^[-–—]+\s+/, "").trim();                 // "- Chicken" → "Chicken"
+
+  // Stage 5d: Strip other noise characters (pipes, backticks, tildes, carets)
+  name = name.replace(/[|`~^\\/]/g, " ").replace(/\s+/g, " ").trim();
 
   // Stage 6: Strip trailing "NEW" "SPICY" etc
   name = name.replace(/\s+(NEW|SPICY|HOT|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE)$/i, "").trim();
