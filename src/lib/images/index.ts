@@ -1,3 +1,7 @@
+/**
+ * Dish image search orchestrator — queries all providers in parallel
+ * (with timeouts), filters non-food results, scores, and ranks them.
+ */
 import { logger } from "@/lib/logger";
 import { NON_FOOD_KEYWORDS, FOOD_PATTERNS } from "@/lib/images/keywords";
 import { searchUnsplash } from "@/lib/images/unsplash";

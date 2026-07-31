@@ -1,3 +1,7 @@
+/**
+ * Scan enrichment — orchestrates dish research + image search for a scan
+ * and persists enriched fields back to the dishes collection.
+ */
 import { logger } from "@/lib/logger";
 import { researchDish } from "@/lib/agent/dish-research";
 import { searchDishImages } from "@/lib/images";

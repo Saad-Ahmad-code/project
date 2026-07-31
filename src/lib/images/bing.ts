@@ -1,3 +1,4 @@
+/** Bing Image Search provider. */
 import { logger } from "@/lib/logger";
 
 export async function searchBing(query: string): Promise<{ url: string; source: string }[]> {

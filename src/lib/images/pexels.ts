@@ -1,3 +1,4 @@
+/** Pexels image provider. */
 import { FOOD_KEYWORDS } from "@/lib/images/keywords";
 import { logger } from "@/lib/logger";
 

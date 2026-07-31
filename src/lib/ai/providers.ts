@@ -1,3 +1,7 @@
+/**
+ * AI provider registry — ordered fallback chain for chat completions
+ * plus vision-capable models and Cloudflare base URL helper.
+ */
 export interface AiProvider {
   name: string;
   baseURL: string;

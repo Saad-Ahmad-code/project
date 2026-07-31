@@ -1,3 +1,7 @@
+/**
+ * AI client — chat completion with a multi-provider fallback chain
+ * (see providers.ts), vision-based OCR, and the Python OCR subprocess runner.
+ */
 import { logger } from "@/lib/logger";
 import { providers, getCloudflareBaseURL, VISION_MODELS } from "@/lib/ai/providers";
 import { tmpdir } from "os";

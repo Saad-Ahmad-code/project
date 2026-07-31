@@ -1,3 +1,4 @@
+/** Shared food/non-food keyword sets used to filter image search results. */
 export const NON_FOOD_KEYWORDS = new Set([
   "logo", "icon", "flag", "map", "coat of arms", "emblem", "seal", "stamp", "coin", "banknote",
   "medal", "badge", "building", "house", "church", "temple", "mosque", "synagogue", "monument",

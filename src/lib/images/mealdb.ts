@@ -1,3 +1,4 @@
+/** TheMealDB image provider. */
 export async function searchMealDB(query: string): Promise<{ url: string; source: string }[]> {
   try {
     const res = await fetch(

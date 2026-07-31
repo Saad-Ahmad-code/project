@@ -1,3 +1,4 @@
+/** Wikipedia/Wikimedia Commons image provider. */
 export async function searchWikipedia(query: string): Promise<{ url: string; source: string }[]> {
   try {
     const res = await fetch(

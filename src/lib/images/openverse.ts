@@ -1,3 +1,4 @@
+/** Openverse (CC-licensed media) image provider. */
 export async function searchOpenverse(query: string): Promise<{ url: string; source: string }[]> {
   try {
     const res = await fetch(

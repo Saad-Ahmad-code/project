@@ -1,3 +1,6 @@
+/**
+ * Shared utilities — cn() merges Tailwind classes (clsx + tailwind-merge).
+ */
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 

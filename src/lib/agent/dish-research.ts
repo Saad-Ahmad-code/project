@@ -1,3 +1,7 @@
+/**
+ * AI dish research — generates description, origin, and dietary tags
+ * for a single dish via chatCompletions (with retries).
+ */
 import { logger } from "@/lib/logger";
 import { chatCompletions } from "@/lib/ai/client";
 

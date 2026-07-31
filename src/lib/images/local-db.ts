@@ -1,3 +1,4 @@
+/** Local curated image URL database — reliable fallback per dish keyword. */
 const LOCAL_DB: Record<string, string[]> = {
   pizza: ["https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400"],
   pasta: ["https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?w=400"],
