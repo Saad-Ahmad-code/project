@@ -1534,10 +1534,12 @@ function crossValidate(items: LocalOCRItem[]): LocalOCRItem[] {
 //  MAIN ENTRY POINT — with Sharp preprocessing + multi-PSM
 // ═══════════════════════════════════════════════════════════════════
 
+type OCRCandidate = { data: any; wordCount: number; alphaWordCount: number; avgConf: number };
+
 async function tryTesseractOnBuffer(
   buffer: Buffer,
   psm: number
-): Promise<{ data: any; wordCount: number; alphaWordCount: number; avgConf: number }> {
+): Promise<OCRCandidate> {
   const result = await Tesseract.recognize(buffer, "eng", {
     tessedit_pageseg_mode: String(psm),
     logger: () => {},
@@ -1553,7 +1555,7 @@ async function tryTesseractOnBuffer(
   };
 }
 
-function getBestResult(results: Array<{ data: any; wordCount: number; alphaWordCount: number; avgConf: number }>): any {
+function getBestResult(results: Array<OCRCandidate | null>): any {
   let best: any = null;
   let bestScore = -1;
   for (const r of results) {
