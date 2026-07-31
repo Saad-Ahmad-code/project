@@ -9,12 +9,12 @@ export function Navbar() {
   const { data: session, status } = useSession();
 
   return (
-    <nav className="flex items-center justify-between px-12 py-5 border-b border-border">
-      <Link href="/" className="text-xl font-bold text-white no-underline">
+    <nav className="flex items-center justify-between px-4 sm:px-12 py-4 sm:py-5 border-b border-border">
+      <Link href="/" className="text-lg sm:text-xl font-bold text-white no-underline whitespace-nowrap">
         MenuLens
       </Link>
 
-      <div className="flex gap-8 items-center">
+      <div className="flex gap-3 sm:gap-8 items-center">
         <Link href="/scan" className="text-sm text-muted-foreground hover:text-white transition-colors no-underline">
           Scan
         </Link>
@@ -28,7 +28,7 @@ export function Navbar() {
 
         {status === "authenticated" && (
           <>
-            <span className="text-sm text-muted-foreground">{session?.user?.email}</span>
+            <span className="text-sm text-muted-foreground hidden sm:inline">{session?.user?.email}</span>
             <Button
               variant="ghost"
               size="sm"
