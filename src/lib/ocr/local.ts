@@ -172,7 +172,7 @@ function isFoodRelated(word: string): boolean {
     /^(waffle|noodle|rice|bread|toast|wrap|taco|burrito|dosa|naan|roti)$/.test(w) ||
     /^(paratha|biryani|curry|tikka|masala|korma|salad|soup|fries)$/.test(w) ||
     /^(cheese|butter|cream|eggs|omelet|omelette|sandwich|pudding)$/.test(w) ||
-    /^(cake|pie|cookie|brownie|muffin|donut|doughnut|mousse|candy)$/.test(w) ||
+    /^(cake|pie|cookie|brownie|muffin|donut|doughnut|mousse|candy|tiramisu)$/.test(w) ||
     /^(coffee|latte|cappuccino|espresso|mocha|latte|chai|soda|juice)$/.test(w) ||
     /^(lemonade|shake|smoothie|mocktail|cocktail|beer|wine)$/.test(w) ||
     /^(grilled|roast|roasted|fried|baked|smoked|steamed|pan|stir)$/.test(w) ||
@@ -270,7 +270,7 @@ const OCR_CORRECTIONS: [RegExp, string][] = [
   [/lasagn?a/gi, "Lasagna"], [/rav[i1]oli/gi, "Ravioli"],
   [/fettvccine/gi, "Fettuccine"], [/fett[uv]ccine/gi, "Fettuccine"],
   [/brvschetta/gi, "Bruschetta"], [/br[uv]schetta/gi, "Bruschetta"], [/brvscetta/gi, "Bruschetta"],
-  [/fr[ie]d/gi, "Fried"], [/grille?d/gi, "Grilled"], [/roaste?d/gi, "Roasted"],
+  [/\bfr[ie]d\b/gi, "Fried"], [/grille?d/gi, "Grilled"], [/roaste?d/gi, "Roasted"],
   [/bake?d/gi, "Baked"], [/smoke?d/gi, "Smoked"], [/steame?d/gi, "Steamed"],
   [/sa[uv]tee?d/gi, "Sautéed"], [/poache?d/gi, "Poached"], [/scramble?d/gi, "Scrambled"],
   [/ch[ei]ese/gi, "Cheese"], [/cheez/gi, "Cheese"],
@@ -409,6 +409,12 @@ function isHeaderLike(text: string, hasPrice: boolean, isCentered: boolean, line
   // Direct keyword match
   if (CATEGORY_KEYWORDS.has(t) || CATEGORY_KEYWORDS.has(t.replace(/s$/, ""))) return true;
 
+  // Price-like content can never be a header. Defense-in-depth for callers
+  // that don't pass hasPrice — dish lines like "Grilled Salmon $16.99" or
+  // "Espresso $2.50" were being promoted to categories (first-word keyword
+  // match), which ate the dish and poisoned the category of every line after.
+  if (/[$€£¥]\s*\d|\b\d+[.,]\d/.test(t)) return false;
+
   // Check if first or last word matches a category keyword
   const firstWord = lineWords[0]?.toLowerCase();
   const lastWord = lineWords[lineWords.length - 1]?.toLowerCase();
@@ -513,9 +519,12 @@ function cleanDishName(raw: string): string {
   // Stage 1: Strip leading decorative symbols
   name = name.replace(/^[★☆⭐●◆▪▸▹►→▪•¶※✓✗✘✔✖✝✙✦✧⬟⬡⌾⭑✪✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀]+/, "").trim();
 
-  // Stage 2: Strip prefix modifiers
+  // Stage 2: Strip prefix modifiers — ONLY menu labels and venue names.
+  // Food-descriptive words (GRILLED, ROASTED, SMOKED, FRESH, SPICY, HOUSE…)
+  // are part of the dish name ("Grilled Salmon" ≠ "Salmon") and must NOT be
+  // stripped. Standalone venue words are already caught by isNoiseLine.
   name = name
-    .replace(/^(NEW|NEW!|SPICY|HOT!|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE|HOUSE|HOMEMADE|FRESH|ORGANIC|GRILLED|ROASTED|SMOKED|HOTEL|RESTAURANT|CAFE|CAFÉ|BAR|LOUNGE|GRILL|GRILLE|BISTRO)\s+/i, "")
+    .replace(/^(NEW!?|CHEF'?S?\s*SPECIAL|SIGNATURE|HOTEL|RESTAURANT|CAFE|CAFÉ|BAR|LOUNGE|GRILL|GRILLE|BISTRO)\s+/i, "")
     .trim();
 
   // Stage 3: Strip allergen/dietary tags like [GF] [V] [VG] (gf) (v)
@@ -782,20 +791,20 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
 
     if (lines.length === 0) continue;
 
-    // First line of each block = potential header
-    const header = lines[0];
-    const headerWords = header.split(/\s+/);
-
-    // Check if first line is a category header
-    if (isHeaderLike(header, false, false, headerWords)) {
-      currentCategory = header;
-      lines.shift(); // remove header from processing
-    }
-
-    // Process remaining lines for dishes
+    // Process lines for dishes. Headers can appear anywhere in a block: the
+    // blank-line split puts the NEXT section's header at the END of the
+    // previous block ("...Chicken Wings\nMains"), so every line is checked.
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (isNoiseLine(line)) continue;
+
+      // Section header detection — priced lines are never headers, so a dish
+      // line like "Grilled Salmon $16.99" can't be consumed as a category.
+      const priceOnLine = findPriceInText(line);
+      if (isHeaderLike(line, !!priceOnLine, false, line.split(/\s+/))) {
+        currentCategory = line.trim();
+        continue;
+      }
 
       // Single number or price-only line
       if (/^\d+(?:\.\d{1,2})?$/.test(line.trim())) continue;
@@ -827,7 +836,6 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
       }
 
       // Detect price on this line
-      const priceOnLine = findPriceInText(line);
       let name = line;
       let price = priceOnLine?.price;
 

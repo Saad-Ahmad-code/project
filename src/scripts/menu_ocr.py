@@ -6,14 +6,34 @@ Placeholders substituted at runtime by pythonOCR():
   __IMG_PATH__              -> absolute path of the input image
 """
 
-import sys, re, json, math
+import os, shutil, sys, re, json, math
 sys.path.insert(0, r"__PYTHON_SITE_PACKAGES__")
 from PIL import Image, ImageFilter, ImageEnhance
 import numpy as np
 import pytesseract
 from scipy import ndimage
 
-pytesseract.pytesseract.tesseract_cmd = r"__TESSERACT_CMD__"
+
+def _resolve_tesseract():
+    """Return the tesseract binary path: the configured command if it's not the
+    bare default, a PATH hit, or a common install location (Windows default).
+    pytesseract raises if the command isn't found, so falling back to the
+    standard install path keeps the layer working out of the box."""
+    cmd = r"__TESSERACT_CMD__"
+    if cmd != "tesseract" or shutil.which("tesseract"):
+        return cmd
+    for p in (
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        "/usr/bin/tesseract",
+        "/usr/local/bin/tesseract",
+    ):
+        if os.path.exists(p):
+            return p
+    return cmd
+
+
+pytesseract.pytesseract.tesseract_cmd = _resolve_tesseract()
 
 RE_PRICE_ONLY = re.compile(r'^\s*\$?\s*\d+\.?\d*\s*$')
 PRICE_RE = re.compile(r'''\$?\s*(\d+\.?\d*)\s*(?:USD)?''', re.IGNORECASE)
@@ -204,13 +224,17 @@ def classify_line(text, word_list, total_height):
         return {"type": "footer", "score": 0}
     is_all_caps = s.isupper() and letters > 3 and len(s) > 2
     has_section_kw = bool(words_lower & SECTION_KEYWORDS)
-    if is_all_caps and len(s) < 30 and letters > len(s) * 0.6:
-        return {"type": "section", "score": 60, "name": s.title()}
-    if has_section_kw and letters > 5 and len(s) < 25:
-        return {"type": "section", "score": 50, "name": s.title()}
-    dish_score = 0
+    # A line with a price is a dish, never a section header. SECTION_KEYWORDS
+    # includes dish-name words (pizza, pasta, burgers…), so "Margherita Pizza
+    # $9.99" was being promoted to a section — eating the dish and poisoning
+    # every following item's category. Mirrors local.ts isHeaderLike.
     s_no_time = re.sub(r'\b\d+[ap]m\b', '', s, flags=re.IGNORECASE)
     has_price = bool(re.search(r'(?:\$\s*(\d+(?:\.\d{1,2})?)|(?<!\S)(\d+\.\d{2})(?=\s|$))', s_no_time))
+    if not has_price and is_all_caps and len(s) < 30 and letters > len(s) * 0.6:
+        return {"type": "section", "score": 60, "name": s.title()}
+    if not has_price and has_section_kw and letters >= 5 and len(s) < 25:
+        return {"type": "section", "score": 50, "name": s.title()}
+    dish_score = 0
     if has_price:
         dish_score += 35
     if letters > 4 and len(s) > 6:

@@ -136,20 +136,34 @@ async function pythonOCR(imageBuffer: ArrayBuffer): Promise<string> {
 
   // The OCR script lives as a real .py file (src/scripts/menu_ocr.py) so it's
   // readable and maintainable. Placeholders are substituted at runtime.
+  // NOTE: /g on every placeholder — they appear in both the docstring and the
+  // code (e.g. __IMG_PATH__). Path values use forward slashes: backslashes in
+  // a plain (non-raw) docstring would break Python parsing (truncated \U escape),
+  // while the r"..." strings keep them verbatim; "/" works in both.
   const repoScript = join(process.cwd(), "src", "scripts", "menu_ocr.py");
+  const slash = (p: string) => p.replace(/\\/g, "/");
   const pythonScript = readFileSync(repoScript, "utf8")
-    .replace("__PYTHON_SITE_PACKAGES__", process.env.PYTHON_SITE_PACKAGES || "")
-    .replace("__TESSERACT_CMD__", process.env.TESSERACT_CMD || "tesseract")
-    .replace("__IMG_PATH__", inputPath);
+    .replace(/__PYTHON_SITE_PACKAGES__/g, slash(process.env.PYTHON_SITE_PACKAGES || ""))
+    .replace(/__TESSERACT_CMD__/g, slash(process.env.TESSERACT_CMD || "tesseract"))
+    .replace(/__IMG_PATH__/g, slash(inputPath));
 
   writeFileSync(scriptPath, pythonScript);
 
   logger.info("[PythonOCR] Menu-specific pipeline (word-level + confidence + spatial)...");
 
   try {
+    // Prefer the project venv Python (has pytesseract/numpy/scipy), matching
+    // engine.ts layer 3. PYTHONPATH must be cleared: when the app is spawned
+    // from an agent/editor shell, PYTHONPATH may point at that shell's own
+    // venv, and the OCR subprocess would import its (possibly broken or
+    // wrong-version) numpy instead of this venv's.
+    const venvPython = join(process.cwd(), '.venv', 'Scripts', 'python.exe');
+    const pythonCmd = process.env.MENULENS_PYTHON || (
+      existsSync(venvPython) ? venvPython : (process.env.PYTHON_CMD || 'python')
+    );
     const raw = execSync(
-      `"${process.env.PYTHON_CMD || "python"}" "${scriptPath}"`,
-      { timeout: 180000, maxBuffer: 10 * 1024 * 1024 }
+      `"${pythonCmd}" "${scriptPath}"`,
+      { timeout: 180000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONPATH: '' } }
     ).toString().trim();
 
     let result: { menu_name?: string; items?: { name?: string; description?: string; price?: number; category?: string; confidence?: number }[]; raw_text?: string; strategy?: string; avg_confidence?: number };
