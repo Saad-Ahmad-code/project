@@ -116,17 +116,39 @@ User uploads menu photo (src/app/scan)
 - **Parser layering:** paragraph-aware (Tesseract `blocks[].paragraphs[]`) → positional
   (`smartParse`, word bounding boxes → columns) → sequential (blank-line blocks) →
   basic line filter. Word-confidence ≥25 filter runs before any parser.
+- **Column detection (`detectColumns`):** splits on a wide vertical gap; rejects a side
+  that is mostly price-only lines (degraded layouts push price boxes to their own
+  column) and merges lines whose x-gap is small (venue title bridging two columns).
+- **Price handling:** price-only lines are captured into `pendingPrice` BEFORE the
+  `isNoiseLine` check — `$8.75` is 60% digits, so the digit-ratio rule would classify
+  it as noise and eat it. Split-price layouts (price box above/below the name) are
+  handled by pending-price capture + the 2-line and 3-line name/description/price
+  patterns in `parseColumn`. A title-case line directly after a price is a priced
+  dish even when it's a category keyword (Cheesecake, Tiramisu) — only all-caps
+  lines keep header status there.
 - **Validation gates:** `/[a-zA-Z]{3,}/` + `hasSufficientRealWords` (≥60% words with 3+
   letters; multi-word names need ≥2 qualifying words) + `isNoiseLine` — quality is secured
-  by these, not word-count floors.
+  by these, not word-count floors. Adaptive threshold: single-word dishes need a strong
+  confidence (they're dropped when just 0.006 below the median — `isFoodRelated` must
+  cover them, e.g. `cheesecake`).
 - **Category/keyword logic:** ~150 category keywords, 80+ OCR-correction table entries,
   noise filters (domains, order/delivery text, HOTEL/RESTAURANT headers, ©, page x of y).
+  `isFoodRelated` (used by confidence) is a separate list from category keywords — keep
+  dish-name foods like cheesecake/pavlova/éclair there so single-word desserts survive
+  the adaptive threshold.
 
 ## Testing notes
 
 - Real menu photos are hard to source (wiki/unsplash return food photos). The reliable
   method: PIL-generated synthetic menus (Pillow installed) → POST to `/api/scan`.
-- Ad-hoc scripts: name them `test_*.py` / `test_*.js` (gitignored) and delete after use.
+- **Offline regression corpus:** `corpus/` (gitignored) holds 8 PIL-generated menus
+  (`menu_*.png`) + `ground_truth.json`; the harness is `test_batch.ts` at the repo ROOT
+  (its imports and paths assume root CWD). Run `npx tsx test_batch.ts` — it runs every
+  menu through the full local OCR pipeline and diffs against ground truth. Current
+  state: **62/62 exact (name+price+category), deterministic across runs**. Add a new
+  menu PNG + truth entries when you change parser logic.
+- Ad-hoc scripts: name them `test_*.py` / `test_*.js` / `test_*.ts` (gitignored) and
+  delete after use. `test_probe*.ts` one-off probes are fine, just delete them.
 - Parser helpers can be exercised directly with `node -e` snippets duplicating the logic,
   or `npx tsx` for imports.
 

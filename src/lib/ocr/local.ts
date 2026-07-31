@@ -101,7 +101,7 @@ async function tryRapidOCR(
       });
 
     const splitWords = text.split(/\s+/).filter((w: string) => w.length > 2);
-    const alphaWords = splitWords.filter((w: string) => /[a-zA-Z]{3,}/.test(w));
+    const alphaWords = splitWords.filter((w: string) => REAL_WORD_RE.test(w));
     const avgConf = lines.length
       ? (lines.reduce((a, l) => a + (l.conf ?? 0), 0) / lines.length) * 100
       : 0;
@@ -271,6 +271,7 @@ function isFoodRelated(word: string): boolean {
     /^(paratha|biryani|curry|tikka|masala|korma|salad|soup|fries)$/.test(w) ||
     /^(cheese|butter|cream|eggs|omelet|omelette|sandwich|pudding)$/.test(w) ||
     /^(cake|pie|cookie|brownie|muffin|donut|doughnut|mousse|candy|tiramisu)$/.test(w) ||
+    /^(cheesecake|pavlova|eclair|profiterole|parfait|trifle)$/.test(w) ||
     /^(coffee|latte|cappuccino|espresso|mocha|latte|chai|soda|juice)$/.test(w) ||
     /^(lemonade|shake|smoothie|mocktail|cocktail|beer|wine)$/.test(w) ||
     /^(grilled|roast|roasted|fried|baked|smoked|steamed|pan|stir)$/.test(w) ||
@@ -300,6 +301,17 @@ function isFoodRelated(word: string): boolean {
     /^(almond|walnut|pecan|cashew|peanut|hazelnut)$/.test(w) ||
     /^(poached|scrambled|sunny|fried|boiled)$/.test(w) ||
     /^(carbonara|bolognese|marinara|arrabiata|pomodoro)$/.test(w) ||
+    /^(mozzarella|burrata|parmesan|gouda|brie|cheddar|feta)$/.test(w) ||
+    /^(halloumi|provolone|ricotta|gruyere|manchego|asiago)$/.test(w) ||
+    /^(gnocchi|ravioli|linguine|fettuccine|penne|rigatoni|tagliatelle)$/.test(w) ||
+    /^(arancini|bruschetta|crostini|caprese|antipasti|calamari)$/.test(w) ||
+    /^(mussels|clams|oysters|scallops|octopus|anchovy|sardine)$/.test(w) ||
+    /^(halibut|trout|tilapia|mahi|bass|snapper|catfish)$/.test(w) ||
+    /^(brisket|meatball|schnitzel|katsu|poke|jambalaya)$/.test(w) ||
+    /^(arugula|quinoa|kale|sprout|slaw|cobbler|crumble)$/.test(w) ||
+    /^(sorbet|gelato|flan|tart|cannoli|macaron|eclair)$/.test(w) ||
+    /^(nachos|quesadilla|taquito|tostada|arepa|empanada)$/.test(w) ||
+    /^(philly|pastrami|corned|brisket|pulled|jerk)$/.test(w) ||
     /^(alfredo|aglio|olio|genovese|puttanesca|primavera)$/.test(w) ||
     /^(tandoori|masala|korma|jalfrezi|dopiaza|rogan|bhuna)$/.test(w) ||
     /^(saag|palak|paneer|dal|chana|rajma|chole)$/.test(w) ||
@@ -379,8 +391,10 @@ const OCR_CORRECTIONS: [RegExp, string][] = [
   [/q[uv]esadilla/gi, "Quesadilla"],
   [/ch[o0]colate/gi, "Chocolate"], [/vanill[as]/gi, "Vanilla"], [/carame[li]/gi, "Caramel"],
   [/strawberr[yt]/gi, "Strawberry"],
-  [/waffles?/gi, "Waffle"], [/pancakes?/gi, "Pancake"], [/muffi[mn]/gi, "Muffin"],
-  [/cvvkies?/gi, "Cookie"], [/brow[nm]ie/gi, "Brownie"], [/donvts?/gi, "Donut"],
+  [/waffles/gi, "Waffles"], [/waffle/gi, "Waffle"], [/pancakes/gi, "Pancakes"], [/pancake/gi, "Pancake"],
+  [/muffins/gi, "Muffins"], [/muffi[mn]/gi, "Muffin"],
+  [/cvvkies/gi, "Cookies"], [/cvvkie/gi, "Cookie"], [/brow[nm]ie/gi, "Brownie"],
+  [/donvts/gi, "Donuts"], [/donvt/gi, "Donut"],
   [/samosa[sz]/gi, "Samosa"], [/pakora[sz]/gi, "Pakora"],
   [/sh[ae]warma/gi, "Shawarma"], [/k[ea]bab/gi, "Kebab"], [/fala?fe[li]/gi, "Falafel"],
   [/tikk[as]/gi, "Tikka"], [/masal[as]/gi, "Masala"], [/biry[ae]ni/gi, "Biryani"],
@@ -402,6 +416,11 @@ const OCR_CORRECTIONS: [RegExp, string][] = [
   [/vinaigrette?/gi, "Vinaigrette"], [/a[io]oli?/gi, "Aioli"],
   [/hollandaise?/gi, "Hollandaise"], [/b[ée]arnaise?/gi, "Béarnaise"],
   [/tartar?/gi, "Tartar"], [/remoulade?/gi, "Remoulade"],
+  // French menu staples — OCR drops accents; restore them for display
+  [/cr[ée]me/gi, "Crème"], [/br[au]l[ée]e?/gi, "Brûlée"],
+  [/huitres?/gi, "Huîtres"], [/fra[ic]hes?/gi, "Fraîches"], [/marinieres?/gi, "Marinières"],
+  // "lb" weight suffix — OCR confuses l/I/1 ("1/2 Ib Burger" → "1/2 lb Burger")
+  [/\b[Il1]b\b/gi, "lb"],
   [/caper[sz]/gi, "Caper"], [/artichoke?/gi, "Artichoke"],
   [/asparagus?/gi, "Asparagus"], [/zucch[ie]ni/gi, "Zucchini"],
   [/eggplant?/gi, "Eggplant"], [/cauliflower?/gi, "Cauliflower"],
@@ -486,7 +505,7 @@ function isNoiseLine(text: string): boolean {
   if (words.length === 1 && words[0].length <= 3 && /^[A-Z][a-z]*$/.test(words[0])) return true;
 
   // All punctuation/noise
-  if (/^[^a-zA-Z0-9]+$/.test(t)) return true;
+  if (/^[^\p{L}\p{N}]+$/u.test(t)) return true;
 
   // Mostly numbers
   const digitRatio = (t.match(/\d/g) || []).length / t.length;
@@ -529,6 +548,36 @@ function isHeaderLike(text: string, hasPrice: boolean, isCentered: boolean, line
   if (isCentered && lineWords.length <= 4 && !/\d/.test(t) && /^[A-Z]/.test(text.trim())) return true;
 
   return false;
+}
+
+// A single OCR word that could be part of a section header: all-caps or a
+// known category keyword. Used to split merged header rows (two-column menus
+// put "TACOS    COCKTAILS" on one physical line).
+function isHeaderToken(word: string): boolean {
+  return /^[A-Z]{2,}$/.test(word) || CATEGORY_KEYWORDS.has(word.toLowerCase());
+}
+
+// A header line that actually names a section (category keyword or all-caps),
+// as opposed to a venue title like "The Golden Fork" (centered title-case).
+function isHeaderCategoryLike(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return (
+    CATEGORY_KEYWORDS.has(t) ||
+    CATEGORY_KEYWORDS.has(t.replace(/s$/, "")) ||
+    text.trim() === text.trim().toUpperCase()
+  );
+}
+
+// Reduce a header line to its category label. Text-only parsing cannot assign
+// items to columns, so a header of 3+ discrete keywords ("TACOS COCKTAILS
+// DRINKS") keeps only the first; 2-token phrases are left intact because
+// "PIZZA COMBOS" / "CHEF SPECIALS" are legitimate single categories.
+function categoryFromHeader(text: string): string {
+  const tokens = text.trim().split(/\s+/);
+  if (tokens.length >= 3 && tokens.length <= 5) {
+    if (tokens.every(t => CATEGORY_KEYWORDS.has(t.toLowerCase()))) return tokens[0];
+  }
+  return text.trim();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -649,9 +698,13 @@ function cleanDishName(raw: string): string {
   name = name.replace(/\s+[-–—]+\s+/g, " ").trim();             // "Chicken - Burger" → "Chicken Burger"
   name = name.replace(/^[-–—]+\s+/, "").trim();                 // "- Chicken" → "Chicken"
 
-  // Stage 5d: Strip other noise characters — symbols, brackets, operators
+  // Stage 5d: Strip other noise characters — symbols, brackets, operators.
+  // Digit fractions ("1/2 lb Burger") are protected first: the slash must not
+  // become a space, which would shatter the name into size junk ("1 2 lb").
+  name = name.replace(/(\d+)\s*\/\s*(\d+)/g, "$1\u2044$2");
   name = name.replace(/[*>{<}%]/g, " ").replace(/\s+/g, " ").trim();
-  name = name.replace(/[|`~^\\/]/g, " ").replace(/\s+/g, " ").trim();
+  name = name.replace(/[|`~^\\]/g, " ").replace(/\s+/g, " ").trim();
+  name = name.replace(/\u2044/g, "/");
 
   // Stage 5e: Strip lone parentheses and mixed brackets that aren't tag-like
   name = name.replace(/[(){}[\]]/g, " ").replace(/\s+/g, " ").trim();
@@ -673,11 +726,16 @@ function cleanDishName(raw: string): string {
     name = name.replace(/\s+S$/, "").trim();
   }
 
+  // Stage 6c: Strip trailing standalone dietary markers left bare by OCR —
+  // "Garden Salad v", "Quinoa Bowl vg", "Chowder gf" (parenthesized/bracketed
+  // tags are already handled in Stage 3).
+  name = name.replace(/\s+(?:V|VG|GF|DF|N)\s*$/i, "").trim();
+
   // Stage 7: Collapse multiple spaces
   name = name.replace(/\s+/g, " ").trim();
 
   // If after all cleaning the name is too short, it was probably just noise
-  if (name.length < 3 || /^[^a-zA-Z]+$/.test(name)) return raw.trim();
+  if (name.length < 3 || /^[^\p{L}]+$/u.test(name)) return raw.trim();
 
   return name;
 }
@@ -714,14 +772,24 @@ function classifyMenuText(rawText: string): { priceRatio: number; avgLineLen: nu
 }
 
 // ── Validate that a candidate dish name has enough real words ──
-// Required: at least 60% of words contain 3+ consecutive letters.
+// Required: at least 60% of word-like tokens contain 3+ consecutive letters.
 // Also: at least 2 words must meet this threshold for multi-word names.
 // This prevents garbled OCR text like "fin re it ell" from passing.
+// \p{L} (Unicode letters) keeps accented dishes like "Créme Bralée" valid —
+// the old ASCII-only [a-zA-Z] gate rejected every French/Spanish/Italian
+// name ("Bralée" has no 3-letter ASCII run).
+const REAL_WORD_RE = /[\p{L}]{3,}/u;
+const ANY_LETTER_RE = /[\p{L}]/u;
+
 function hasSufficientRealWords(name: string): boolean {
   const words = name.split(/\s+/);
   if (words.length === 0) return false;
-  const realWords = words.filter(w => /[a-zA-Z]{3,}/.test(w));
-  const threshold = Math.max(1, Math.ceil(words.length * 0.6));
+  // Tokens without letters ("1/2", "12"") are size/quantity info — they don't
+  // count against the ratio ("1/2 lb Cheese Burger" is a valid dish name).
+  const wordLike = words.filter(w => ANY_LETTER_RE.test(w));
+  if (wordLike.length === 0) return false;
+  const realWords = wordLike.filter(w => REAL_WORD_RE.test(w));
+  const threshold = Math.max(1, Math.ceil(wordLike.length * 0.6));
   return realWords.length >= threshold;
 }
 
@@ -804,16 +872,33 @@ function basicExtract(raw_text: string): LocalOCRItem[] {
 
   const items: LocalOCRItem[] = [];
   const seen = new Set<string>();
+  let currentCategory = "";
 
-  for (const line of lines) {
+  // Venue block: lines before the first section header (restaurant name,
+  // tagline, address...) are never dishes — but only when the menu actually
+  // has section headers (headerless fastfood menus keep their no-price items).
+  const firstHeaderIdx = lines.findIndex(l => {
+    const p = findPriceInText(l);
+    return isHeaderLike(l, !!p, false, l.split(/\s+/));
+  });
+  const hasHeaders = firstHeaderIdx >= 0;
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
     // Skip obvious noise
     if (isNoiseLine(line)) continue;
-    // Skip description lines (not dish names)
-    if (isDescriptionLine(line)) continue;
 
     const cleaned = line.replace(/[|]/g, " ").replace(/\s+/g, " ").trim();
     const price = findPriceInText(cleaned);
     const wordCount = cleaned.split(/\s+/).length;
+
+    // Venue/header block before the first section header
+    if (hasHeaders && li < firstHeaderIdx && !price) continue;
+
+    // Skip description lines (not dish names) — never when the line has a
+    // price: "Avocado Toast (v) $11.00" is a dish, not a description, and the
+    // dietary-marker check in isDescriptionLine would eat it.
+    if (!price && isDescriptionLine(cleaned)) continue;
 
     // Extract name (remove price if trailing)
     let name = cleaned;
@@ -824,18 +909,24 @@ function basicExtract(raw_text: string): LocalOCRItem[] {
     }
 
     if (!name || wordCount > 25) continue;
-    if (!/[a-zA-Z]{3,}/.test(name)) continue;
+    if (!REAL_WORD_RE.test(name)) continue;
     // Require at least 60% of individual words to have 3+ letters (reject garbled OCR)
     if (!hasSufficientRealWords(name)) continue;
 
-    // Skip category headers in flat menus (lines with no price that are category names)
+    // Category headers in flat menus (lines with no price that are category
+    // names) — skipped, but tracked so items below inherit the section.
     if (!price && wordCount <= 4) {
       const nameLower = name.toLowerCase().trim();
-      if (CATEGORY_KEYWORDS.has(nameLower) || CATEGORY_KEYWORDS.has(nameLower.replace(/s$/, ""))) continue;
-      // Also skip all-caps short lines with no price and no food words
+      const isCategoryHeader =
+        CATEGORY_KEYWORDS.has(nameLower) || CATEGORY_KEYWORDS.has(nameLower.replace(/s$/, ""));
+      // Also all-caps short lines with no price and no food words
       const nameWords = nameLower.split(/\s+/);
       const hasFoodWord = nameWords.some(w => isFoodRelated(w));
-      if (!hasFoodWord && wordCount <= 3 && name === name.toUpperCase()) continue;
+      const isAllCapsHeader = !hasFoodWord && wordCount <= 3 && name === name.toUpperCase();
+      if (isCategoryHeader || isAllCapsHeader) {
+        currentCategory = categoryFromHeader(name);
+        continue;
+      }
     }
 
     // Clean and validate
@@ -850,7 +941,7 @@ function basicExtract(raw_text: string): LocalOCRItem[] {
       name: correctOCRErrors(name).slice(0, 200),
       description: "",
       price: price?.price,
-      category: guessCategory(name),
+      category: currentCategory || guessCategory(name),
     });
   }
 
@@ -878,8 +969,20 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
 
   const dishes: ParsedDish[] = [];
   let currentCategory = "";
+  let headerSeen = false;
   const seen = new Set<string>();
   let sourceIndex = 0;
+
+  // Does the menu have any section headers at all? Headerless (pure list)
+  // menus must NOT apply the venue-block skip, or their first no-price dish
+  // would be eaten.
+  const menuHasHeaders = rawText
+    .split(/\r?\n/)
+    .some(l => {
+      const t = l.trim();
+      const p = findPriceInText(t);
+      return isHeaderLike(t, !!p, false, t.split(/\s+/));
+    });
 
   for (let bi = 0; bi < blocks.length; bi++) {
     const lines = blocks[bi]
@@ -900,14 +1003,21 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
       // line like "Grilled Salmon $16.99" can't be consumed as a category.
       const priceOnLine = findPriceInText(line);
       if (isHeaderLike(line, !!priceOnLine, false, line.split(/\s+/))) {
-        currentCategory = line.trim();
+        currentCategory = categoryFromHeader(line.trim());
+        headerSeen = true;
         continue;
       }
 
+      // Venue block: no-price lines before the first section header are the
+      // restaurant name / tagline, not dishes — only when the menu has headers.
+      if (menuHasHeaders && !headerSeen && !priceOnLine) continue;
+
       // Single number or price-only line
       if (/^\d+(?:\.\d{1,2})?$/.test(line.trim())) continue;
-      // Skip description lines (not dish names)
-      if (isDescriptionLine(line)) continue;
+      // Skip description lines (not dish names) — never when priced: the
+      // dietary-marker check ((v), [GF]) would eat real dish lines like
+      // "Avocado Toast (v) $11.00".
+      if (!priceOnLine && isDescriptionLine(line)) continue;
 
       // Check for size variant pattern: "Small 9.99 / Large 12.99"
       if (/(Small|Regular|Single|Large|Double|Medium)\s+[$€£¥]?\s*\d/.test(line)) {
@@ -915,16 +1025,16 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
           .replace(/(Small|Regular|Single|Large|Double|Medium|Kids?)\s+[$€£¥]?\s*\d+(?:[.,]\d+)?\s*\/?\s*/g, "")
           .trim();
         if (baseName && baseName.length > 3) {
-          const prices = [...line.matchAll(/(\d+(?:[.,]\d{1,2})?)/g)].map(m => parseFloat(m[1].replace(",", ".")));
-          const medianPrice = prices.length > 0 ? prices[Math.floor(prices.length / 2)] : undefined;
-
           const cleaned = cleanDishName(baseName);
           if (!seen.has(cleaned.toLowerCase()) && !isNoiseLine(cleaned)) {
             seen.add(cleaned.toLowerCase());
+            const prices = [...line.matchAll(/(\d+(?:[.,]\d{1,2})?)/g)].map(m => parseFloat(m[1].replace(",", ".")));
+            // "Small $5.00 / Large $8.00" → entry price is the FIRST (small) size
+            const entryPrice = prices.length > 0 ? prices[0] : undefined;
             dishes.push({
               name: correctOCRErrors(cleaned).slice(0, 200),
               category: currentCategory || undefined,
-              price: medianPrice,
+              price: entryPrice,
               confidence: 0.6,
               sourceIndex: sourceIndex++,
             });
@@ -961,7 +1071,7 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
       name = cleanDishName(name);
       const words = name.split(/\s+/);
       if (name.length < 3) continue;
-      if (!/[a-zA-Z]{3,}/.test(name)) continue;
+      if (!REAL_WORD_RE.test(name)) continue;
       if (!hasSufficientRealWords(name)) continue;
       if (isNoiseLine(name)) continue;
 
@@ -1039,58 +1149,81 @@ function groupIntoLines(words: WordPos[]): TextLine[] {
 
   for (const group of lineGroups) {
     if (group.length === 0) continue;
-    const text = group.map(w => w.text).join(" ").trim();
-    if (!text) continue;
 
-    const minX = Math.min(...group.map(w => w.x));
-    const minY = Math.min(...group.map(w => w.y));
-    const maxX = Math.max(...group.map(w => w.x + w.w));
-    const maxY = Math.max(...group.map(w => w.y + w.h));
-
-    // Price in last 1-2 words
-    let hasPrice = false;
-    let price: number | undefined;
-    let priceEndX = 0;
-
-    for (let w = group.length - 1; w >= Math.max(0, group.length - 3); w--) {
-      const pr = findPriceInWord(group[w].text);
-      if (pr) {
-        hasPrice = true;
-        price = pr.price;
-        priceEndX = group[w].x + group[w].w;
-        break;
+    // Split merged header rows: two-column menus put both section headers on
+    // one physical line ("TACOS    COCKTAILS"). When a large X-gap separates
+    // two header-like words, treat each side as its own line so column
+    // detection and category propagation work per column. Item rows are safe:
+    // a price token is never header-like, so "name ....... $9.99" won't split.
+    const splitIdx: number[] = [];
+    for (let i = 0; i < group.length - 1; i++) {
+      const gap = group[i + 1].x - (group[i].x + group[i].w);
+      if (gap > Math.max(imgWidth * 0.15, 80) && isHeaderToken(group[i].text) && isHeaderToken(group[i + 1].text)) {
+        splitIdx.push(i + 1);
       }
     }
-
-    // Also try price at end of full text
-    if (!hasPrice) {
-      const pr = findPriceInText(text);
-      if (pr && pr.position === "trailing") {
-        hasPrice = true;
-        price = pr.price;
-        priceEndX = maxX;
-      }
+    const segments: WordPos[][] = [];
+    let segStart = 0;
+    for (const idx of [...splitIdx, group.length]) {
+      segments.push(group.slice(segStart, idx));
+      segStart = idx;
     }
 
-    const lineWords = text.split(/\s+/);
-    const midX = minX + (maxX - minX) / 2;
-    const isCentered = midX > imgWidth * 0.25 && midX < imgWidth * 0.75 && (maxX - minX) < imgWidth * 0.7;
-    const isAllCaps = text === text.toUpperCase() && /[A-Z]{4,}/.test(text);
+    for (const seg of segments) {
+      if (seg.length === 0) continue;
+      const text = seg.map(w => w.text).join(" ").trim();
+      if (!text) continue;
 
-    lines.push({
-      text,
-      x: minX,
-      y: minY,
-      w: maxX - minX,
-      h: maxY - minY,
-      words: group,
-      hasPrice,
-      price,
-      priceEndX,
-      isCentered,
-      isAllCaps,
-      isHeader: isHeaderLike(text, hasPrice, isCentered, lineWords),
-    });
+      const minX = Math.min(...seg.map(w => w.x));
+      const minY = Math.min(...seg.map(w => w.y));
+      const maxX = Math.max(...seg.map(w => w.x + w.w));
+      const maxY = Math.max(...seg.map(w => w.y + w.h));
+
+      // Price in last 1-2 words
+      let hasPrice = false;
+      let price: number | undefined;
+      let priceEndX = 0;
+
+      for (let w = seg.length - 1; w >= Math.max(0, seg.length - 3); w--) {
+        const pr = findPriceInWord(seg[w].text);
+        if (pr) {
+          hasPrice = true;
+          price = pr.price;
+          priceEndX = seg[w].x + seg[w].w;
+          break;
+        }
+      }
+
+      // Also try price at end of full text
+      if (!hasPrice) {
+        const pr = findPriceInText(text);
+        if (pr && pr.position === "trailing") {
+          hasPrice = true;
+          price = pr.price;
+          priceEndX = maxX;
+        }
+      }
+
+      const lineWords = text.split(/\s+/);
+      const midX = minX + (maxX - minX) / 2;
+      const isCentered = midX > imgWidth * 0.25 && midX < imgWidth * 0.75 && (maxX - minX) < imgWidth * 0.7;
+      const isAllCaps = text === text.toUpperCase() && /[A-Z]{4,}/.test(text);
+
+      lines.push({
+        text,
+        x: minX,
+        y: minY,
+        w: maxX - minX,
+        h: maxY - minY,
+        words: seg,
+        hasPrice,
+        price,
+        priceEndX,
+        isCentered,
+        isAllCaps,
+        isHeader: isHeaderLike(text, hasPrice, isCentered, lineWords),
+      });
+    }
   }
 
   return lines;
@@ -1106,8 +1239,23 @@ function detectColumns(lines: TextLine[]): Column[] {
   const rightLines = lines.filter(l => l.x + l.w / 2 >= mid);
 
   if (leftLines.length >= 2 && rightLines.length >= 2) {
-    const leftMaxX = Math.max(...leftLines.map(l => l.x + l.w));
-    const rightMinX = Math.min(...rightLines.map(l => l.x));
+    // A side that is mostly price-only lines is a right-aligned PRICE column
+    // (degraded layout where price boxes sit on their own row), not a menu
+    // column. Keep everything unified so the split-price pairing logic can
+    // attach each price to its dish name.
+    const isPriceOnly = (l: TextLine) => /^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*$/.test(l.text.trim());
+    const leftPriceShare = leftLines.filter(isPriceOnly).length / leftLines.length;
+    const rightPriceShare = rightLines.filter(isPriceOnly).length / rightLines.length;
+    if (leftPriceShare >= 0.6 || rightPriceShare >= 0.6) {
+      return [{ lines: lines.sort((a, b) => a.y - b.y), xMin: 0, xMax: imgWidth }];
+    }
+
+    // Exclude centered lines (venue titles spanning the middle) from the gap
+    // check — they bridge two genuine columns and would prevent the split.
+    const leftSpan = leftLines.filter(l => !l.isCentered);
+    const rightSpan = rightLines.filter(l => !l.isCentered);
+    const leftMaxX = leftSpan.length ? Math.max(...leftSpan.map(l => l.x + l.w)) : Math.max(...leftLines.map(l => l.x + l.w));
+    const rightMinX = rightSpan.length ? Math.min(...rightSpan.map(l => l.x)) : Math.min(...rightLines.map(l => l.x));
     if (rightMinX - leftMaxX > imgWidth * 0.08) {
       return [
         { lines: leftLines.sort((a, b) => a.y - b.y), xMin: 0, xMax: leftMaxX },
@@ -1126,21 +1274,85 @@ function parseColumn(column: Column): ParsedDish[] {
   let pendingDish: ParsedDish | null = null;
   let nextIndex = 0;
   let categoryLineIndex = -1;
+  let seenCategoryHeader = false;
+  // A price-only line ("$9.50") whose dish name sits on the NEXT row — happens
+  // on degraded/rotated photos where RapidOCR puts price boxes on their own
+  // line. Attached to the next no-price dish line.
+  let pendingPrice: number | undefined = undefined;
 
   // Classify menu type for adaptive behavior
   const layout = classifyMenu(lines);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // Price-only line: capture BEFORE isNoiseLine — its digit ratio marks it
+    // as noise, but in split-price layouts (degraded photos put price boxes
+    // on their own row) it is the dish price that must pair with the name
+    // on the next line.
+    if (/^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*$/.test(line.text.trim()) && line.price !== undefined) {
+      pendingPrice = line.price;
+      continue;
+    }
     if (isNoiseLine(line.text)) continue;
 
     // Category header detection
     if (line.isHeader) {
       // Flush any pending dish
       if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
-      currentCategory = line.text.trim();
+      const catText = line.text.trim();
+
+      // A price-only line preceded this "header": in degraded layouts the
+      // price box sits on its own row above the name, so this line is really
+      // a dish ("$2.75" then "Iced Tea", "$6.50" then "Cheesecake"). Only
+      // all-caps headers keep header status — a title-case "header" directly
+      // after a price is a priced dish, even when it's a category keyword
+      // (cheesecake, tiramisu, soup).
+      if (pendingPrice !== undefined && catText !== catText.toUpperCase()) {
+        const cleaned = cleanDishName(catText);
+        if (cleaned.length >= 3 && !isNoiseLine(cleaned) && hasSufficientRealWords(cleaned)) {
+          pendingDish = {
+            name: correctOCRErrors(cleaned).slice(0, 200),
+            price: pendingPrice,
+            category: currentCategory || undefined,
+            confidence: 0.6,
+            sourceIndex: nextIndex++,
+          };
+        }
+        pendingPrice = undefined;
+        continue;
+      }
+      pendingPrice = undefined;
+
+      // Venue gate: the FIRST header in a column must look like a real section
+      // (category keyword or all-caps). Restaurant titles ("The Golden Fork")
+      // are centered title-case and must not become the category of everything
+      // below.
+      if (!seenCategoryHeader && !isHeaderCategoryLike(catText)) continue;
+      seenCategoryHeader = true;
+      currentCategory = categoryFromHeader(catText);
       categoryLineIndex = i;
       continue;
+    }
+
+    // Recover swallowed headers: Y-grouping can merge the venue subtitle into
+    // the next section header ("Est. 1998 • Fine Dining APPETIZERS"), which
+    // fails isHeaderLike and silently eats the category. If the line contains
+    // digits (subtitle signature) plus an ALL-CAPS category keyword, that
+    // keyword is the real header.
+    if (!line.hasPrice && /\d/.test(line.text)) {
+      const capsKeyword = line.text
+        .trim()
+        .split(/\s+/)
+        .find(w => w.length >= 3 && w === w.toUpperCase() && CATEGORY_KEYWORDS.has(w.toLowerCase()));
+      if (capsKeyword) {
+        if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
+        pendingPrice = undefined;
+        seenCategoryHeader = true;
+        currentCategory = capsKeyword;
+        categoryLineIndex = i;
+        continue;
+      }
     }
 
     // Category expires after 15 lines
@@ -1148,9 +1360,8 @@ function parseColumn(column: Column): ParsedDish[] {
       currentCategory = "";
     }
 
-    // Skip number-only and price-only lines
+    // Skip number-only lines
     if (/^\d+(?:\.\d+)?$/.test(line.text.trim())) continue;
-    if (/^[\d\s.\-$€£¥]+$/.test(line.text.trim())) continue;
 
     // Name extraction with price
     const nameText = line.text.trim();
@@ -1165,13 +1376,14 @@ function parseColumn(column: Column): ParsedDish[] {
         .trim();
       if (baseName && baseName.length > 3) {
         const prices = [...nameText.matchAll(/(\d+(?:[.,]\d{1,2})?)/g)].map(m => parseFloat(m[1].replace(",", ".")));
-        const medianPrice = prices.length > 0 ? prices[Math.floor(prices.length / 2)] : undefined;
+        // "Small $5.00 / Large $8.00" → entry price is the FIRST (small) size
+        const entryPrice = prices.length > 0 ? prices[0] : undefined;
         const conf = computeConfidence(true, baseName, currentCategory, line.isCentered, line.isAllCaps, layout);
 
         dishes.push({
           name: baseName,
           category: currentCategory || undefined,
-          price: medianPrice,
+          price: entryPrice,
           confidence: conf,
           sourceIndex: nextIndex++,
         });
@@ -1179,11 +1391,57 @@ function parseColumn(column: Column): ParsedDish[] {
       continue;
     }
 
+    // No-price line with a price-only line BEFORE it (price-first ordering:
+    // degraded photos put the price box above the name). The pending price is
+    // THIS dish's price — consume it before the 2-line pattern can misread the
+    // next row's price as ours.
+    if (!line.hasPrice && pendingPrice !== undefined) {
+      const cleaned = cleanDishName(nameText);
+      if (cleaned.length >= 3 && !isNoiseLine(cleaned) && hasSufficientRealWords(cleaned)) {
+        if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
+        const conf = computeConfidence(true, cleaned, currentCategory, line.isCentered, line.isAllCaps, layout);
+        dishes.push({
+          name: correctOCRErrors(cleaned).slice(0, 200),
+          price: pendingPrice,
+          category: currentCategory || undefined,
+          confidence: conf,
+          sourceIndex: nextIndex++,
+        });
+      }
+      pendingPrice = undefined;
+      continue;
+    }
+
+    // 2-line split pattern: name on this line, price-only line right below
+    // (RapidOCR splits price boxes onto their own row on some menus).
+    if (!line.hasPrice && pendingPrice === undefined && i + 1 < lines.length) {
+      const nxt = lines[i + 1];
+      if (nxt.hasPrice && nxt.price !== undefined && nxt.y - line.y < 60 && !isNoiseLine(nxt.text)) {
+        const cleanedName = cleanDishName(nameText);
+        if (cleanedName.length >= 3 && hasSufficientRealWords(cleanedName)) {
+          if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
+          const conf = computeConfidence(true, cleanedName, currentCategory, line.isCentered, line.isAllCaps, layout);
+          dishes.push({
+            name: correctOCRErrors(cleanedName).slice(0, 200),
+            price: nxt.price,
+            category: currentCategory || undefined,
+            confidence: conf,
+            sourceIndex: nextIndex++,
+          });
+          i += 1;
+          continue;
+        }
+      }
+    }
+
     // 3-line fine-dining pattern: name / description / price
     if (!line.hasPrice && i + 2 < lines.length) {
       const next1 = lines[i + 1];
       const next2 = lines[i + 2];
-      if (!next1.hasPrice && next2.hasPrice && !isNoiseLine(next1.text) && !isNoiseLine(next2.text)) {
+      // next1 must not be a header: "Est. 1998 • Fine Dining" + "APPETIZERS" +
+      // "Truffle Arancini $9.50" would otherwise read as name/desc/price and
+      // swallow the section header and its first dish.
+      if (!next1.hasPrice && next2.hasPrice && !next1.isHeader && !isNoiseLine(next1.text) && !isNoiseLine(next2.text)) {
         const cleanedName = cleanDishName(nameText);
         const cleanedDesc = next1.text.trim();
         if (cleanedName.length > 3 && cleanedDesc.length > 3) {
@@ -1411,7 +1669,7 @@ function paragraphAwareParse(paragraphs: ParagraphInfo[], rawText: string): Loca
 
     const corrected = correctOCRErrors(dish.name).trim();
     if (corrected.length < 3 || isNoiseLine(corrected + " x")) continue;
-    if (!/[a-zA-Z]{3,}/.test(corrected)) continue;
+    if (!REAL_WORD_RE.test(corrected)) continue;
     if (!hasSufficientRealWords(corrected)) continue;
     if (dish.confidence < threshold) continue;
 
@@ -1419,7 +1677,7 @@ function paragraphAwareParse(paragraphs: ParagraphInfo[], rawText: string): Loca
       name: corrected.slice(0, 200),
       description: dish.description ? correctOCRErrors(dish.description).trim().slice(0, 500) : "",
       price: dish.price,
-      category: dish.category || "other",
+      category: dish.category || guessCategory(corrected),
     });
   }
 
@@ -1454,7 +1712,7 @@ function smartParse(rawText: string, words: WordPos[]): LocalOCRItem[] {
 
     const corrected = correctOCRErrors(dish.name).trim();
     if (corrected.length < 3 || isNoiseLine(corrected + " x")) continue;
-    if (!/[a-zA-Z]{3,}/.test(corrected)) continue;
+    if (!REAL_WORD_RE.test(corrected)) continue;
     if (!hasSufficientRealWords(corrected)) continue;
 
     // Cross-validation: if this dish confidence is far below median, skip
@@ -1464,7 +1722,7 @@ function smartParse(rawText: string, words: WordPos[]): LocalOCRItem[] {
       name: corrected.slice(0, 200),
       description: dish.description ? correctOCRErrors(dish.description).trim().slice(0, 500) : "",
       price: dish.price,
-      category: dish.category || "other",
+      category: dish.category || guessCategory(corrected),
     });
   }
 
@@ -1546,7 +1804,7 @@ async function tryTesseractOnBuffer(
   } as any);
   const text = (result.data.text || "").trim();
   const words = text.split(/\s+/).filter((w: string) => w.length > 2);
-  const alphaWords = words.filter((w: string) => /[a-zA-Z]{3,}/.test(w));
+  const alphaWords = words.filter((w: string) => REAL_WORD_RE.test(w));
   return {
     data: result.data,
     wordCount: words.length,
@@ -1569,7 +1827,11 @@ function getBestResult(results: Array<OCRCandidate | null>): any {
     // avgConf/10 breaks ties in favour of the higher-confidence engine
     // (RapidOCR ≈100 vs Tesseract ≈95), so a strong reading wins over an
     // equal-sized weaker one.
-    const score = r.alphaWordCount * 10 + r.wordCount + (r.avgConf ?? 0) / 10;
+    // Word-data bonus: candidates with word bounding boxes (RapidOCR) enable
+    // the positional parser — columns, per-column categories, merged-header
+    // splitting. Worth ~2.5 alpha words; real quality gaps still win.
+    const hasWords = Array.isArray(r.data.words) && r.data.words.length > 0;
+    const score = r.alphaWordCount * 10 + r.wordCount + (r.avgConf ?? 0) / 10 + (hasWords ? 25 : 0);
     if (score > bestScore) {
       bestScore = score;
       best = r.data;
@@ -1612,7 +1874,7 @@ export async function runLocalOCR(
 
       // Pick the best result (null candidates are skipped)
       resultData = getBestResult(results);
-    } catch {
+    } catch (e) {
       // Sharp not available or preprocessing failed — try raw image with multi-PSM
       const psmModes = [6, 4, 11];
       const results = await Promise.all([
