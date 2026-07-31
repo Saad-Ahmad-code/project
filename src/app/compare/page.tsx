@@ -97,12 +97,12 @@ export default function ComparePage() {
   return (
     <main className="max-w-3xl mx-auto p-8 min-h-screen">
       <h1 className="text-2xl font-bold mb-2">Compare Scans</h1>
-      <p className="text-sm text-muted mb-6">
+      <p className="text-sm text-muted-foreground mb-6">
         Enter two scan IDs to compare their dishes side by side. You can find scan IDs in the{" "}
         <Link href="/history" className="text-primary underline underline-offset-2">History</Link> page.
       </p>
 
-      <Suspense fallback={<div className="text-sm text-muted">Loading...</div>}>
+      <Suspense fallback={<div className="text-sm text-muted-foreground">Loading...</div>}>
         <CompareForm />
       </Suspense>
     </main>

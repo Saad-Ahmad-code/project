@@ -148,7 +148,7 @@ export default function ResultsPage() {
 
       <h1 className="text-2xl font-bold mb-2">Scan Results</h1>
       {scan?.agent_summary && (
-        <p className="text-sm text-muted mb-6">{scan.agent_summary}</p>
+        <p className="text-sm text-muted-foreground mb-6">{scan.agent_summary}</p>
       )}
 
       {/* AI Food Expert Button */}
@@ -164,7 +164,7 @@ export default function ResultsPage() {
       {suggestionsLoading && (
         <div className="mb-6 p-4 bg-surface rounded-lg text-center">
           <Progress value={60} className="h-1.5 mb-2" />
-          <p className="text-sm text-muted">AI Food Expert is analyzing your menu...</p>
+          <p className="text-sm text-muted-foreground">AI Food Expert is analyzing your menu...</p>
         </div>
       )}
 
@@ -187,7 +187,7 @@ export default function ResultsPage() {
           >
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
-              <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted bg-transparent border-none cursor-pointer">Hide</button>
+              <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted-foreground bg-transparent border-none cursor-pointer">Hide</button>
             </div>
 
             {suggestions.overview && (
@@ -248,7 +248,7 @@ export default function ResultsPage() {
       <div className="mb-4">
         <button
           onClick={() => setShowPrefs(!showPrefs)}
-          className="text-sm text-muted hover:text-white transition-colors bg-transparent border border-border rounded-md px-3 py-1.5 cursor-pointer"
+          className="text-sm text-muted-foreground hover:text-white transition-colors bg-transparent border border-border rounded-md px-3 py-1.5 cursor-pointer"
         >
           {showPrefs ? "Hide Filters" : `Dietary Filters${dietPrefs.length > 0 ? ` (${dietPrefs.length})` : ""}`}
         </button>
@@ -261,7 +261,7 @@ export default function ResultsPage() {
                 className={`text-xs px-3 py-1 rounded-full border cursor-pointer transition-colors ${
                   dietPrefs.includes(pref)
                     ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-surface text-muted border-border hover:text-white"
+                    : "bg-surface text-muted-foreground border-border hover:text-white"
                 }`}
               >
                 {pref === 'gluten-free' ? 'Gluten-Free' : pref.charAt(0).toUpperCase() + pref.slice(1)}
@@ -270,7 +270,7 @@ export default function ResultsPage() {
           </div>
         )}
         {dietPrefs.length > 0 && (
-          <p className="text-xs text-muted mt-2">
+          <p className="text-xs text-muted-foreground mt-2">
             {filteredItems.length} of {items.length} dishes match your preferences
           </p>
         )}
@@ -301,7 +301,7 @@ export default function ResultsPage() {
             />
             <NutritionPanel dishName={item.name} />
             <RecipePanel dishName={item.name} />
-            <p className="text-xs text-muted mt-1.5">Tap to see more photos</p>
+            <p className="text-xs text-muted-foreground mt-1.5">Tap to see more photos</p>
           </motion.div>
         ))}
       </div>
@@ -320,11 +320,11 @@ export default function ResultsPage() {
             >
               <DialogTitle className="text-lg font-semibold mb-2">{selectedDish.name}</DialogTitle>
 
-              {selectedDish.description && <p className="text-sm text-muted mb-4">{selectedDish.description}</p>}
+              {selectedDish.description && <p className="text-sm text-muted-foreground mb-4">{selectedDish.description}</p>}
 
               <h3 className="text-sm font-medium mb-2">Photos</h3>
 
-              {loadingImages && <p className="text-sm text-muted">Loading more photos...</p>}
+              {loadingImages && <p className="text-sm text-muted-foreground">Loading more photos...</p>}
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {selectedDish.image_url && !moreImages.some((img) => img.url === selectedDish.image_url) && (
@@ -336,7 +336,7 @@ export default function ResultsPage() {
               </div>
 
               {!loadingImages && moreImages.length === 0 && !selectedDish.image_url && (
-                <p className="text-sm text-muted">No additional photos found.</p>
+                <p className="text-sm text-muted-foreground">No additional photos found.</p>
               )}
             </motion.div>
           )}

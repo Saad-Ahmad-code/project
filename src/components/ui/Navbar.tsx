@@ -15,10 +15,10 @@ export function Navbar() {
       </Link>
 
       <div className="flex gap-8 items-center">
-        <Link href="/scan" className="text-sm text-muted hover:text-white transition-colors no-underline">
+        <Link href="/scan" className="text-sm text-muted-foreground hover:text-white transition-colors no-underline">
           Scan
         </Link>
-        <Link href="/history" className="text-sm text-muted hover:text-white transition-colors no-underline">
+        <Link href="/history" className="text-sm text-muted-foreground hover:text-white transition-colors no-underline">
           History
         </Link>
 
@@ -28,7 +28,7 @@ export function Navbar() {
 
         {status === "authenticated" && (
           <>
-            <span className="text-sm text-muted">{session?.user?.email}</span>
+            <span className="text-sm text-muted-foreground">{session?.user?.email}</span>
             <Button
               variant="ghost"
               size="sm"
@@ -40,7 +40,7 @@ export function Navbar() {
         )}
 
         {status === "unauthenticated" && (
-          <Link href="/auth/login" className="inline-flex h-7 items-center justify-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium whitespace-nowrap transition-all hover:bg-muted hover:text-foreground active:translate-y-px no-underline text-muted">
+          <Link href="/auth/login" className="inline-flex h-7 items-center justify-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium whitespace-nowrap transition-all hover:bg-muted hover:text-foreground active:translate-y-px no-underline text-muted-foreground">
             Login
           </Link>
         )}

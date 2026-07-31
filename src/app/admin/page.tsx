@@ -52,7 +52,7 @@ const StatCard = ({
   value: number | string;
 }) => (
   <div className="bg-surface border border-border rounded-xl p-5">
-    <p className="text-xs text-muted font-medium uppercase tracking-wider mb-1">
+    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">
       {label}
     </p>
     <p className="text-3xl font-bold text-white">{value}</p>
@@ -120,7 +120,7 @@ export default function AdminPage() {
       {/* Chart */}
       {stats?.dailyVolume && stats.dailyVolume.length > 0 && (
         <section className="bg-surface border border-border rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
             Scan Volume (Last 7 Days)
           </h2>
           <div className="h-48">
@@ -167,7 +167,7 @@ export default function AdminPage() {
       {/* Recent Scans Table */}
       {stats?.recentScans && stats.recentScans.length > 0 && (
         <section className="bg-surface border border-border rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
             Recent Scans
           </h2>
           <Table>
@@ -182,7 +182,7 @@ export default function AdminPage() {
             <TableBody>
               {stats.recentScans.map((scan) => (
                 <TableRow key={scan.id}>
-                  <TableCell className="text-sm text-muted">
+                  <TableCell className="text-sm text-muted-foreground">
                     {formatDate(scan.date)}
                   </TableCell>
                   <TableCell>{scan.items}</TableCell>
@@ -195,7 +195,7 @@ export default function AdminPage() {
                       {scan.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-sm text-muted">
+                  <TableCell className="text-sm text-muted-foreground">
                     {scan.userId}
                   </TableCell>
                 </TableRow>

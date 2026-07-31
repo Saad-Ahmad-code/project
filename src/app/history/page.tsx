@@ -50,7 +50,7 @@ export default function HistoryPage() {
           <p className="text-red-400 text-sm">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-2 px-4 py-1.5 rounded-lg border border-border bg-background text-sm text-muted cursor-pointer"
+            className="mt-2 px-4 py-1.5 rounded-lg border border-border bg-background text-sm text-muted-foreground cursor-pointer"
           >
             Retry
           </button>
@@ -58,7 +58,7 @@ export default function HistoryPage() {
       )}
 
       {scans.length === 0 ? (
-        <div className="text-center py-12 text-muted">
+        <div className="text-center py-12 text-muted-foreground">
           <p>No scans yet</p>
           <Link href="/scan" className="text-primary inline-block mt-4">
             Scan a Menu
@@ -77,7 +77,7 @@ export default function HistoryPage() {
           <TableBody>
             {scans.map((scan) => (
               <TableRow key={scan.id}>
-                <TableCell className="text-sm text-muted">
+                <TableCell className="text-sm text-muted-foreground">
                   {new Date(scan.created_at).toLocaleDateString()}
                 </TableCell>
                 <TableCell className="font-medium">{scan.items_count}</TableCell>
@@ -98,7 +98,7 @@ export default function HistoryPage() {
                     <Link href={`/results/${scan.id}`} className="text-sm text-primary hover:text-primary/80 transition-colors">
                       View
                     </Link>
-                    <Link href={`/compare?a=${scan.id}`} className="text-sm text-muted hover:text-primary transition-colors">
+                    <Link href={`/compare?a=${scan.id}`} className="text-sm text-muted-foreground hover:text-primary transition-colors">
                       Compare
                     </Link>
                   </div>

@@ -95,7 +95,7 @@ export default function RegisterPage() {
           </Button>
         </form>
 
-        <p className="text-center mt-5 text-sm text-muted">
+        <p className="text-center mt-5 text-sm text-muted-foreground">
           Already have an account?{" "}
           <Link href="/auth/login" className="text-primary hover:text-primary/80 transition-colors">
             Login

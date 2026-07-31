@@ -102,7 +102,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
                     <span><strong>{r.sugars_g}g</strong> sugars</span>
                   )}
                 </div>
-                <div className="mt-1 text-[0.7rem] text-muted">
+                <div className="mt-1 text-[0.7rem] text-muted-foreground">
                   per 100g &middot; via {r.source === 'usda' ? 'USDA Food Data Central' : 'Open Food Facts'}
                   {r.serving_size && ` \u00b7 serving: ${r.serving_size}`}
                 </div>
@@ -117,7 +117,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
           transition={{ duration: 0.2 }}
-          className="mt-2 text-sm text-muted"
+          className="mt-2 text-sm text-muted-foreground"
         >
           No nutrition data found for &ldquo;{dishName}&rdquo;
         </motion.div>

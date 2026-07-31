@@ -44,7 +44,7 @@ export function RecipePanel({ dishName }: RecipePanelProps) {
         disabled={loading}
         variant="ghost"
         size="sm"
-        className="text-xs text-muted hover:text-white"
+        className="text-xs text-muted-foreground hover:text-white"
       >
         {loading ? "Searching..." : "Recipe"}
       </Button>
@@ -54,7 +54,7 @@ export function RecipePanel({ dishName }: RecipePanelProps) {
           {recipe && (
             <div>
               <DialogTitle className="text-xl font-bold mb-1">{recipe.name}</DialogTitle>
-              <div className="flex gap-2 text-xs text-muted mb-4">
+              <div className="flex gap-2 text-xs text-muted-foreground mb-4">
                 {recipe.category && <span>{recipe.category}</span>}
                 {recipe.area && <span>&middot; {recipe.area}</span>}
                 {recipe.tags && recipe.tags.length > 0 && (
@@ -75,7 +75,7 @@ export function RecipePanel({ dishName }: RecipePanelProps) {
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   {recipe.ingredients.map((ing, i) => (
                     <div key={i} className="flex gap-2">
-                      <span className="text-muted">&bull;</span>
+                      <span className="text-muted-foreground">&bull;</span>
                       <span>{ing.measure ? `${ing.measure} ${ing.name}` : ing.name}</span>
                     </div>
                   ))}
@@ -84,7 +84,7 @@ export function RecipePanel({ dishName }: RecipePanelProps) {
 
               <div>
                 <h3 className="text-sm font-semibold mb-2">Instructions</h3>
-                <p className="text-sm text-muted whitespace-pre-line leading-relaxed">
+                <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
                   {recipe.instructions}
                 </p>
               </div>

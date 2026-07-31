@@ -198,7 +198,7 @@ export default function ScanPage() {
           onClick={() => fileInputRef.current?.click()}
           className="border-2 border-dashed border-border rounded-xl p-12 text-center mb-4 cursor-pointer bg-surface"
         >
-          <p className="text-muted">Drop a menu image here, or click to select</p>
+          <p className="text-muted-foreground">Drop a menu image here, or click to select</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -228,7 +228,7 @@ export default function ScanPage() {
           <Button
             onClick={handleScanAnother}
             variant="ghost"
-            className="w-full mt-3 text-muted"
+            className="w-full mt-3 text-muted-foreground"
           >
             Choose different image
           </Button>
@@ -238,7 +238,7 @@ export default function ScanPage() {
       {(isScanning || status === "complete") && (
         <div className="mb-4">
           <Progress value={progress} className="h-2 mb-2" />
-          <p className="text-sm text-muted">
+          <p className="text-sm text-muted-foreground">
             {status === "local_scanning"
               ? "Running local OCR (this may take a minute)..."
               : statusMessage || status}
@@ -257,7 +257,7 @@ export default function ScanPage() {
           {status === "error" && image && (
             <button
               onClick={handleLocalScan}
-              className="block mt-3 px-4 py-2 rounded-lg bg-surface text-sm text-muted border border-border cursor-pointer"
+              className="block mt-3 px-4 py-2 rounded-lg bg-surface text-sm text-muted-foreground border border-border cursor-pointer"
             >
               Retry with Local OCR
             </button>
@@ -270,7 +270,7 @@ export default function ScanPage() {
           <div className="flex justify-between items-center mb-4">
             <div>
               <h2 className="text-xl font-semibold">{localMenuName}</h2>
-              <p className="text-sm text-muted">{localItems.length} dishes found (offline)</p>
+              <p className="text-sm text-muted-foreground">{localItems.length} dishes found (offline)</p>
             </div>
             <Button onClick={handleScanAnother} variant="outline" size="sm">
               New Scan
@@ -294,7 +294,7 @@ export default function ScanPage() {
               className="mb-6 p-4 bg-surface rounded-lg text-center"
             >
               <Progress value={60} className="h-1.5 mb-2" />
-              <p className="text-sm text-muted">AI Food Expert is analyzing your menu...</p>
+              <p className="text-sm text-muted-foreground">AI Food Expert is analyzing your menu...</p>
             </motion.div>
           )}
 
@@ -317,7 +317,7 @@ export default function ScanPage() {
               >
                 <div className="flex justify-between items-center mb-3">
                   <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
-                  <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted bg-transparent border-none cursor-pointer">Hide</button>
+                  <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted-foreground bg-transparent border-none cursor-pointer">Hide</button>
                 </div>
 
                 {suggestions.overview && (
@@ -377,7 +377,7 @@ export default function ScanPage() {
             <select
               value={targetLang}
               onChange={(e) => setTargetLang(e.target.value)}
-              className="flex-1 bg-transparent border border-border rounded-md px-2 py-1.5 text-sm text-muted cursor-pointer"
+              className="flex-1 bg-transparent border border-border rounded-md px-2 py-1.5 text-sm text-muted-foreground cursor-pointer"
             >
               <option value="english">English</option>
               <option value="urdu">Urdu</option>
@@ -399,7 +399,7 @@ export default function ScanPage() {
             {showTranslated && translatedText && (
               <button
                 onClick={() => setShowTranslated(false)}
-                className="text-xs text-muted bg-transparent border-none cursor-pointer whitespace-nowrap"
+                className="text-xs text-muted-foreground bg-transparent border-none cursor-pointer whitespace-nowrap"
               >
                 Hide
               </button>
@@ -407,7 +407,7 @@ export default function ScanPage() {
           </div>
 
           {showTranslated && translatedText && (
-            <div className="mb-4 p-3 rounded-lg bg-surface border border-border text-sm text-muted whitespace-pre-line">
+            <div className="mb-4 p-3 rounded-lg bg-surface border border-border text-sm text-muted-foreground whitespace-pre-line">
               {translatedText}
             </div>
           )}
@@ -434,7 +434,7 @@ export default function ScanPage() {
             {barcodeLoading && (
               <div className="mt-3 p-4 bg-surface rounded-lg text-center">
                 <Progress value={60} className="h-1.5 mb-2" />
-                <p className="text-sm text-muted">Looking up product...</p>
+                <p className="text-sm text-muted-foreground">Looking up product...</p>
               </div>
             )}
 
@@ -473,7 +473,7 @@ export default function ScanPage() {
                         </span>
                       )}
                     </div>
-                    <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-xs text-muted">
+                    <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                       {barcodeResult.calories !== undefined && <span>{barcodeResult.calories} kcal</span>}
                       {barcodeResult.protein_g !== undefined && <span>{barcodeResult.protein_g}g protein</span>}
                       {barcodeResult.fat_g !== undefined && <span>{barcodeResult.fat_g}g fat</span>}
@@ -484,7 +484,7 @@ export default function ScanPage() {
                 </div>
                 <button
                   onClick={() => setBarcodeResult(null)}
-                  className="mt-2 text-xs text-muted hover:text-white bg-transparent border-none cursor-pointer"
+                  className="mt-2 text-xs text-muted-foreground hover:text-white bg-transparent border-none cursor-pointer"
                 >
                   Dismiss
                 </button>
@@ -549,7 +549,7 @@ function LocalDishItem({ item }: { item: LocalOCRItem }) {
           image_url={item.image_url}
           confidence={item.confidence}
         />
-        <p className="text-xs text-muted mt-1.5">Tap to see more photos</p>
+        <p className="text-xs text-muted-foreground mt-1.5">Tap to see more photos</p>
       </motion.div>
 
       <Dialog open={showImages} onOpenChange={(open) => { if (!open) setShowImages(false); }}>
@@ -565,7 +565,7 @@ function LocalDishItem({ item }: { item: LocalOCRItem }) {
             >
               <DialogTitle className="text-lg font-semibold mb-2">{item.name}</DialogTitle>
 
-              {loadingImages && <p className="text-sm text-muted">Loading photos...</p>}
+              {loadingImages && <p className="text-sm text-muted-foreground">Loading photos...</p>}
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {moreImages.map((img) => (
@@ -574,7 +574,7 @@ function LocalDishItem({ item }: { item: LocalOCRItem }) {
               </div>
 
               {!loadingImages && moreImages.length === 0 && (
-                <p className="text-sm text-muted">No photos found for this dish.</p>
+                <p className="text-sm text-muted-foreground">No photos found for this dish.</p>
               )}
             </motion.div>
           )}

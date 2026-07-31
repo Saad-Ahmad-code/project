@@ -9,7 +9,7 @@ export default function HomePage() {
           <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-white">
             MenuLens
           </h1>
-          <p className="text-lg md:text-xl text-muted max-w-md mx-auto leading-relaxed">
+          <p className="text-lg md:text-xl text-muted-foreground max-w-md mx-auto leading-relaxed">
             Take a photo of any restaurant menu and let AI extract dishes,
             analyze nutrition, and suggest the best picks.
           </p>
@@ -37,8 +37,8 @@ export default function HomePage() {
             <span className="text-xs font-semibold text-primary block tracking-widest uppercase">
               01
             </span>
-            <p className="text-sm text-muted font-medium">Upload</p>
-            <p className="text-xs text-muted/60">
+            <p className="text-sm text-muted-foreground font-medium">Upload</p>
+            <p className="text-xs text-muted-foreground/70">
               Snap or upload a menu photo
             </p>
           </div>
@@ -46,8 +46,8 @@ export default function HomePage() {
             <span className="text-xs font-semibold text-primary block tracking-widest uppercase">
               02
             </span>
-            <p className="text-sm text-muted font-medium">Scan</p>
-            <p className="text-xs text-muted/60">
+            <p className="text-sm text-muted-foreground font-medium">Scan</p>
+            <p className="text-xs text-muted-foreground/70">
               AI extracts every dish and detail
             </p>
           </div>
@@ -55,8 +55,8 @@ export default function HomePage() {
             <span className="text-xs font-semibold text-primary block tracking-widest uppercase">
               03
             </span>
-            <p className="text-sm text-muted font-medium">Review</p>
-            <p className="text-xs text-muted/60">
+            <p className="text-sm text-muted-foreground font-medium">Review</p>
+            <p className="text-xs text-muted-foreground/70">
               Explore nutrition, ratings & recipes
             </p>
           </div>
@@ -65,7 +65,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-border py-6 px-4">
-        <p className="text-xs text-muted/40 text-center">
+        <p className="text-xs text-muted-foreground/50 text-center">
           MenuLens &mdash; AI-powered menu scanning
         </p>
       </footer>

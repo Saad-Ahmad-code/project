@@ -74,7 +74,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
         />
 
         {scanning && (
-          <p className="text-xs text-muted mt-2 text-center">
+          <p className="text-xs text-muted-foreground mt-2 text-center">
             Point camera at a barcode
           </p>
         )}
@@ -82,7 +82,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
         {error && (
           <div className="mt-3 p-3 rounded-lg bg-red-950 border border-red-800">
             <p className="text-sm text-red-400">{error}</p>
-            <p className="text-xs text-muted mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Try using a USB camera or type the barcode number manually.
             </p>
           </div>
