@@ -12,3 +12,5 @@ data/
 test_menus/
 test_*.py
 test_*.js
+__pycache__/
+*.pyc

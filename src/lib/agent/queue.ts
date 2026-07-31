@@ -130,6 +130,7 @@ export async function processJob(job: AgentJob): Promise<boolean> {
 
     // Convert dishes to menu item input for the agent
     const menuItems = dishes.map((d: any) => ({
+      id: d.id || d._id,
       name: d.name,
       description: d.description || '',
       price: d.price,

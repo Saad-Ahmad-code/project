@@ -47,6 +47,9 @@ class LocalCollection {
   private _match(item: any, query: any): boolean {
     if (!query || Object.keys(query).length === 0) return true;
     for (const [key, value] of Object.entries(query)) {
+      // Documents are stored with _id (no id field). When a caller queries
+      // by { id }, match against _id for docs without an explicit id field.
+      if (key === 'id' && value !== undefined && item.id === undefined && item._id === value) continue;
       if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
         const v = value as Record<string, any>;
         if (v.$gte !== undefined && !(item[key] >= v.$gte)) return false;

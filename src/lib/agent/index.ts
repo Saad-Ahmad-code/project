@@ -2,9 +2,11 @@ import { logger } from "@/lib/logger";
 import { researchDish } from "@/lib/agent/dish-research";
 import { searchDishImages } from "@/lib/images";
 import { chatCompletions } from "@/lib/ai/client";
-import { DishResult } from "@/types/menu";
+import type { DishResult } from "@/types/menu";
 
 interface MenuItemInput {
+  /** Stored dish id (from the dishes collection) — preserved so enrichment writes back to the same doc */
+  id?: string;
   name: string;
   description?: string;
   price?: number;
@@ -30,7 +32,7 @@ export async function runAgent(
       }
 
       return {
-        id: `${scanId}-${index}-${Date.now().toString(36)}`,
+        id: item.id || `${scanId}-${index}-${Date.now().toString(36)}`,
         name: item.name,
         description: item.description,
         ai_description: info?.description || "",
