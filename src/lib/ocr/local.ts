@@ -13,7 +13,105 @@
  * adaptive confidence thresholding, cross-validation.
  */
 
+import { spawn } from "child_process";
+import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import Tesseract from "tesseract.js";
+
+// ═══════════════════════════════════════════════════════════════════
+//  PYTHON SUBPROCESS (RapidOCR candidate engine)
+// ═══════════════════════════════════════════════════════════════════
+
+const RAPIDOCR_SCRIPT = join(process.cwd(), "src", "scripts", "rapidocr_scan.py");
+
+function resolvePythonCmd(): string {
+  // Prefer the project venv (has rapidocr/onnxruntime), matching client.ts
+  // pythonOCR and engine.ts layer 3. Fallbacks: env override → PATH.
+  if (process.env.MENULENS_PYTHON) return process.env.MENULENS_PYTHON;
+  const venv = join(process.cwd(), ".venv", "Scripts", "python.exe");
+  if (existsSync(venv)) return venv;
+  return process.env.PYTHON_CMD || "python";
+}
+
+function runPythonScript(script: string, args: string[], timeoutMs = 45000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // PYTHONPATH must be cleared: when the app is spawned from an agent/editor
+    // shell, PYTHONPATH can point at an unrelated venv whose numpy is a broken
+    // binary mix — subprocesses must import only from their own interpreter.
+    const child = spawn(resolvePythonCmd(), [script, ...args], {
+      env: { ...process.env, PYTHONPATH: "" },
+      windowsHide: true,
+    });
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`python ${script} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    child.on("error", (e) => { clearTimeout(timer); reject(e); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`python ${script} exited ${code}: ${err.slice(0, 300)}`));
+    });
+  });
+}
+
+// Runs RapidOCR (PP-OCRv5 on ONNX Runtime) as an extra candidate in the
+// multi-PSM pool. Returns null on ANY failure — the pool must never break.
+async function tryRapidOCR(
+  buffer: Buffer
+): Promise<{ data: any; wordCount: number; alphaWordCount: number; avgConf: number } | null> {
+  const tmp = join(tmpdir(), `menulens-rapidocr-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+  try {
+    writeFileSync(tmp, buffer);
+    const out = await runPythonScript(RAPIDOCR_SCRIPT, [tmp]);
+    const parsed = JSON.parse(out.trim());
+    const lines: Array<{ text: string; conf: number; box: number[] }> = parsed.lines || [];
+    const text: string = parsed.raw_text || "";
+
+    // Shape the output like Tesseract data so the shared parser pipeline
+    // (smartParse / sequentialParse) consumes it unchanged. RapidOCR gives
+    // line-level boxes; split each line into word tokens with char-proportional
+    // x-extents so column detection and price/name parsing behave like the
+    // Tesseract path (line-as-single-word produced 0 dishes).
+    const words = lines
+      .filter((l) => l.text && Array.isArray(l.box) && l.box.length === 4)
+      .flatMap((l) => {
+        const tokens = l.text.split(/\s+/).filter(Boolean);
+        if (tokens.length === 0) return [];
+        const [x0, y0, x1, y1] = l.box;
+        const lineW = Math.max(x1 - x0, 1);
+        const totalChars = l.text.length || 1;
+        const conf = Math.round((l.conf ?? 0) * 100);
+        let cx = x0;
+        return tokens.map((tok) => {
+          const w = Math.max((tok.length / totalChars) * lineW, 2);
+          const word = {
+            text: tok,
+            confidence: conf,
+            bbox: { x0: cx, y0, x1: cx + w, y1 },
+          };
+          cx += w + 2; // small gap between tokens
+          return word;
+        });
+      });
+
+    const splitWords = text.split(/\s+/).filter((w: string) => w.length > 2);
+    const alphaWords = splitWords.filter((w: string) => /[a-zA-Z]{3,}/.test(w));
+    const avgConf = lines.length
+      ? (lines.reduce((a, l) => a + (l.conf ?? 0), 0) / lines.length) * 100
+      : 0;
+    return { data: { text, words }, wordCount: splitWords.length, alphaWordCount: alphaWords.length, avgConf };
+  } catch {
+    return null;
+  } finally {
+    try { unlinkSync(tmp); } catch { /* ignore */ }
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  TYPES
@@ -1109,7 +1207,11 @@ function parseColumn(column: Column): ParsedDish[] {
     if (line.hasPrice && line.price !== undefined) {
       if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
 
-      const cleaned = cleanDishName(nameText);
+      // Strip the parsed trailing price BEFORE cleaning: cleanDishName's
+      // dot-strip stage turns "$9.99" into "$9 99", which then fails the
+      // real-word gate and drops the dish entirely.
+      const nameWithoutPrice = nameText.replace(/\s*[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*$/, "").trim();
+      const cleaned = cleanDishName(nameWithoutPrice);
       if (cleaned.length >= 3 && words >= 1 && !isNoiseLine(cleaned)) {
         const conf = computeConfidence(true, cleaned, currentCategory, line.isCentered, line.isAllCaps, layout);
         pendingDish = {
@@ -1435,7 +1537,7 @@ function crossValidate(items: LocalOCRItem[]): LocalOCRItem[] {
 async function tryTesseractOnBuffer(
   buffer: Buffer,
   psm: number
-): Promise<{ data: any; wordCount: number; alphaWordCount: number }> {
+): Promise<{ data: any; wordCount: number; alphaWordCount: number; avgConf: number }> {
   const result = await Tesseract.recognize(buffer, "eng", {
     tessedit_pageseg_mode: String(psm),
     logger: () => {},
@@ -1447,21 +1549,33 @@ async function tryTesseractOnBuffer(
     data: result.data,
     wordCount: words.length,
     alphaWordCount: alphaWords.length,
+    avgConf: result.data.confidence ?? 0,
   };
 }
 
-function getBestResult(results: Array<{ data: any; wordCount: number; alphaWordCount: number }>): any {
-  let best = results[0];
+function getBestResult(results: Array<{ data: any; wordCount: number; alphaWordCount: number; avgConf: number }>): any {
+  let best: any = null;
   let bestScore = -1;
   for (const r of results) {
-    // Score: prefer alpha words (real text) with a minimum threshold
-    const score = r.alphaWordCount * 10 + r.wordCount;
-    if (score > bestScore && r.alphaWordCount >= 3) {
+    if (!r || !r.data) continue; // failed candidate (e.g. RapidOCR unavailable)
+    // Confidence gate: garbled OCR (avgConf ~10) must never beat real text
+    // (avgConf 90+), even when it produces more tokens. Measured on a noisy
+    // synthetic menu: tesseract garbage = 27 alpha words @ conf 10 vs
+    // RapidOCR 21 alpha words @ conf 100.
+    if (r.alphaWordCount < 3 || (r.avgConf ?? 0) < 40) continue;
+    // Score: prefer alpha words (real text) with a minimum threshold.
+    // avgConf/10 breaks ties in favour of the higher-confidence engine
+    // (RapidOCR ≈100 vs Tesseract ≈95), so a strong reading wins over an
+    // equal-sized weaker one.
+    const score = r.alphaWordCount * 10 + r.wordCount + (r.avgConf ?? 0) / 10;
+    if (score > bestScore) {
       bestScore = score;
-      best = r;
+      best = r.data;
     }
   }
-  return best.data;
+  // Nothing passed the gates — keep the first candidate (old behavior) so the
+  // parser still has something to work with on pathological images.
+  return best ?? (results.find((r) => r && r.data)?.data ?? null);
 }
 
 export async function runLocalOCR(
@@ -1484,20 +1598,25 @@ export async function runLocalOCR(
         .resize({ width: 2048, withoutEnlargement: true })
         .toBuffer();
 
-      // ── Step 3: Multi-PSM trial on preprocessed image ──
+      // ── Step 3: Multi-PSM trial on preprocessed image (+ RapidOCR candidate) ──
+      // RapidOCR gets the RAW buffer: it has its own internal preprocessing,
+      // and Sharp's normalize+sharpen amplifies noise on degraded photos,
+      // which made RapidOCR detect nothing on a noisy menu.
       const psmModes = [6, 4, 11];
-      const results = await Promise.all(
-        psmModes.map(psm => tryTesseractOnBuffer(preprocessed, psm))
-      );
+      const results = await Promise.all([
+        ...psmModes.map(psm => tryTesseractOnBuffer(preprocessed, psm)),
+        tryRapidOCR(inputBuffer),
+      ]);
 
-      // Pick the best result
+      // Pick the best result (null candidates are skipped)
       resultData = getBestResult(results);
     } catch {
       // Sharp not available or preprocessing failed — try raw image with multi-PSM
       const psmModes = [6, 4, 11];
-      const results = await Promise.all(
-        psmModes.map(psm => tryTesseractOnBuffer(inputBuffer, psm))
-      );
+      const results = await Promise.all([
+        ...psmModes.map(psm => tryTesseractOnBuffer(inputBuffer, psm)),
+        tryRapidOCR(inputBuffer),
+      ]);
       resultData = getBestResult(results);
     }
   } catch {

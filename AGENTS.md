@@ -45,6 +45,11 @@ and let users compare scans. TypeScript, Tailwind CSS v4, shadcn/ui (Base UI), F
 9. **Windows shell notes:** the terminal is git-bash. `del file 2>nul` creates a literal
    file named `nul` that breaks `git add -A` (exit 128) — use `rm -f`. Pillow is installed
    in the Python env for generating synthetic test menus.
+10. **PYTHONPATH pollution:** the Hermes agent shell exports `PYTHONPATH` pointing at its
+   own venv (Python 3.11). Every python/pip invocation in the terminal must clear it
+   (`PYTHONPATH= .venv/Scripts/python.exe …`). Running `pip install` WITHOUT clearing it
+   makes pip see deps "already satisfied" in the agent venv and skip installing them into
+   the project venv. The app's own spawns already clear it (`PYTHONPATH: ''` in spawn env).
 
 ## Architecture & data flow
 
@@ -78,6 +83,8 @@ User uploads menu photo (src/app/scan)
 | `src/lib/auth/options.ts` | NextAuth config, local JSON user storage. |
 | `src/lib/diagnostics.ts`, `src/lib/error-handler.ts` | Health checks / auto-diagnostic error handler. |
 | `src/scripts/menu_ocr.py` | Standalone Python OCR script (extracted from client.ts template literal). |
+| `src/scripts/easyocr_scan.py` | EasyOCR scan script (engine.ts layer 3). |
+| `src/scripts/rapidocr_scan.py` | RapidOCR scan script (PP-OCRv6 models on ONNX Runtime) — an extra candidate in `runLocalOCR`'s engine pool (local.ts). |
 | `src/app/api/…` | Route handlers (see API list below). |
 | `src/app/{scan,history,results,compare,admin,auth}` | Pages. |
 
@@ -98,8 +105,14 @@ User uploads menu photo (src/app/scan)
 
 - **Preprocessing:** Sharp grayscale + normalize + sharpen + resize(2048) inside
   `runLocalOCR()` (fallback to raw image if Sharp unavailable).
-- **PSM trial:** runs PSM modes `{6, 4, 11}` in parallel, picks the result with the most
-  alpha words. (Online engine.ts uses `{6,4,3,11,12}` — untouched.)
+- **PSM trial:** runs PSM modes `{6, 4, 11}` in parallel **plus RapidOCR** (`rapidocr_scan.py`
+  via subprocess, PP-OCRv6 on ONNX Runtime, gets the RAW buffer — Sharp's sharpen amplifies
+  noise on degraded photos and made it detect nothing), picks the result with the most
+  alpha words. **Confidence gate:** candidates with avgConf < 40 are excluded (garbage OCR
+  scores ~10 even when it produces *more* tokens than real text); ties break toward the
+  higher-confidence engine. RapidOCR output is shaped like Tesseract data (word tokens with
+  char-proportional boxes) so the shared parser pipeline consumes it unchanged. (Online
+  engine.ts uses `{6,4,3,11,12}` — untouched.)
 - **Parser layering:** paragraph-aware (Tesseract `blocks[].paragraphs[]`) → positional
   (`smartParse`, word bounding boxes → columns) → sequential (blank-line blocks) →
   basic line filter. Word-confidence ≥25 filter runs before any parser.
