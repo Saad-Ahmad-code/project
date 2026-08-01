@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""RapidOCR scan — PaddleOCR PP-OCRv5 models on ONNX Runtime.
+"""RapidOCR scan — PaddleOCR PP-OCRv6 models on ONNX Runtime.
 
 Usage: rapidocr_scan.py <image_path>
 Prints JSON to stdout:

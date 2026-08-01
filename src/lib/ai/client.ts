@@ -4,11 +4,18 @@
  */
 import { logger } from "@/lib/logger";
 import { providers, getCloudflareBaseURL, VISION_MODELS } from "@/lib/ai/providers";
-import { tmpdir } from "os";
-import { join } from "path";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from "fs";
-import { execSync } from "child_process";
-import { createHash } from "crypto";
+
+// Node builtins are resolved at runtime via eval('require') so webpack does
+// not statically trace them when this module is pulled into bundles such as
+// the instrumentation hook (queue → agent → client) — without this, the
+// instrumentation bundle fails with "Module not found: Can't resolve 'os'".
+// Same pattern as src/lib/mongodb.ts (AGENTS.md rule #3).
+const _require = eval('require') as NodeRequire;
+const { tmpdir } = _require('os') as typeof import('os');
+const { join } = _require('path') as typeof import('path');
+const { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } = _require('fs') as typeof import('fs');
+const { execSync } = _require('child_process') as typeof import('child_process');
+const { createHash } = _require('crypto') as typeof import('crypto');
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";

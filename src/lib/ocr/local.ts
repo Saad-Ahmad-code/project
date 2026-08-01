@@ -14,16 +14,19 @@
  */
 
 import { spawn } from "child_process";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import Tesseract from "tesseract.js";
+import { cleanOCRText } from "./cleaner";
+import { cleanTextWithOllama, ollamaVisionOCR, parseDishArray, refineWithOllama } from "./ollama";
 
 // ═══════════════════════════════════════════════════════════════════
 //  PYTHON SUBPROCESS (RapidOCR candidate engine)
 // ═══════════════════════════════════════════════════════════════════
 
 const RAPIDOCR_SCRIPT = join(process.cwd(), "src", "scripts", "rapidocr_scan.py");
+const MENU_OCR_SCRIPT = join(process.cwd(), "src", "scripts", "menu_ocr.py");
 
 function resolvePythonCmd(): string {
   // Prefer the project venv (has rapidocr/onnxruntime), matching client.ts
@@ -60,7 +63,7 @@ function runPythonScript(script: string, args: string[], timeoutMs = 45000): Pro
   });
 }
 
-// Runs RapidOCR (PP-OCRv5 on ONNX Runtime) as an extra candidate in the
+// Runs RapidOCR (PP-OCRv6 on ONNX Runtime) as an extra candidate in the
 // multi-PSM pool. Returns null on ANY failure — the pool must never break.
 async function tryRapidOCR(
   buffer: Buffer
@@ -105,11 +108,69 @@ async function tryRapidOCR(
     const avgConf = lines.length
       ? (lines.reduce((a, l) => a + (l.conf ?? 0), 0) / lines.length) * 100
       : 0;
-    return { data: { text, words }, wordCount: splitWords.length, alphaWordCount: alphaWords.length, avgConf };
+    // Keep the raw line boxes (not the synthetic words) — they carry the
+    // rotation signal used by estimateSkewDegrees for deskewing.
+    return { data: { text, words, rawLines: lines }, wordCount: splitWords.length, alphaWordCount: alphaWords.length, avgConf };
   } catch {
     return null;
   } finally {
     try { unlinkSync(tmp); } catch { /* ignore */ }
+  }
+}
+
+// Runs menu_ocr.py — the word-level pytesseract pipeline (4 preprocessing
+// strategies × 5 PSM modes, own deskew) — as a pool candidate. It emits the
+// winning strategy's word tokens with geometry; we shape them into
+// Tesseract-like data so the shared parser consumes it exactly like the
+// RapidOCR candidate. Placeholders are substituted the same way pythonOCR()
+// in client.ts does. Returns null on ANY failure — the pool must never break.
+async function tryMenuOCR(buffer: Buffer): Promise<OCRCandidate | null> {
+  const tmpDir = join(tmpdir(), `menulens-menuocr-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const inputPath = join(tmpDir, "menu.png");
+  const scriptPath = join(tmpDir, "menu_ocr.py");
+  try {
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(inputPath, buffer);
+    const slash = (p: string) => p.replace(/\\/g, "/");
+    const script = readFileSync(MENU_OCR_SCRIPT, "utf8")
+      .replace(/__PYTHON_SITE_PACKAGES__/g, slash(process.env.PYTHON_SITE_PACKAGES || ""))
+      .replace(/__TESSERACT_CMD__/g, slash(process.env.TESSERACT_CMD || "tesseract"))
+      .replace(/__IMG_PATH__/g, slash(inputPath));
+    writeFileSync(scriptPath, script);
+
+    // Up to 20 tesseract passes — needs room (see menuOCRRescue: this only
+    // runs when the fast engines produced a weak read, so the wait is the
+    // rescue path, not the common path).
+    const out = await runPythonScript(scriptPath, [], 120000);
+    const parsed = JSON.parse(out.trim());
+    const text: string = parsed.raw_text || "";
+
+    const words = (parsed.words || [])
+      .filter((w: any) => w && typeof w.word === "string" && w.word.trim().length > 0)
+      .map((w: any) => {
+        const x = w.x ?? 0;
+        const y = w.y ?? 0;
+        return {
+          text: w.word as string,
+          confidence: Math.round(w.conf ?? 0),
+          bbox: { x0: x, y0: y, x1: x + (w.w ?? 0), y1: y + (w.h ?? 0) },
+        };
+      });
+
+    if ((parsed.items || []).length === 0 && words.length === 0) return null;
+
+    const splitWords = text.split(/\s+/).filter((w: string) => w.length > 2);
+    const alphaWords = splitWords.filter((w: string) => REAL_WORD_RE.test(w));
+    return {
+      data: { text, words },
+      wordCount: splitWords.length,
+      alphaWordCount: alphaWords.length,
+      avgConf: typeof parsed.avg_confidence === "number" ? parsed.avg_confidence : 0,
+    };
+  } catch {
+    return null;
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 }
 
@@ -187,7 +248,7 @@ type MenuLayout = "descriptive" | "compact" | "fastfood" | "unknown";
 //  DATA: CATEGORY KEYWORDS (150+)
 // ═══════════════════════════════════════════════════════════════════
 
-const CATEGORY_KEYWORDS = new Set([
+export const CATEGORY_KEYWORDS = new Set([
   // Course / meal type
   "appetizers", "starters", "entrees", "mains", "soups", "salads", "sides", "extras",
   "main course", "main courses", "desserts", "dessert", "drinks", "beverages",
@@ -269,16 +330,17 @@ function isFoodRelated(word: string): boolean {
     /^(lobster|mutton|turkey|duck|pizza|pasta|burger|steak|pancake)$/.test(w) ||
     /^(waffle|noodle|rice|bread|toast|wrap|taco|burrito|dosa|naan|roti)$/.test(w) ||
     /^(paratha|biryani|curry|tikka|masala|korma|salad|soup|fries)$/.test(w) ||
-    /^(cheese|butter|cream|eggs|omelet|omelette|sandwich|pudding)$/.test(w) ||
+    /^(cheese|butter|cream|milk|eggs|omelet|omelette|sandwich|pudding)$/.test(w) ||
     /^(cake|pie|cookie|brownie|muffin|donut|doughnut|mousse|candy|tiramisu)$/.test(w) ||
     /^(cheesecake|pavlova|eclair|profiterole|parfait|trifle)$/.test(w) ||
-    /^(coffee|latte|cappuccino|espresso|mocha|latte|chai|soda|juice)$/.test(w) ||
+    /^(coffee|latte|cappuccino|espresso|mocha|chai|tea|soda|juice)$/.test(w) ||
     /^(lemonade|shake|smoothie|mocktail|cocktail|beer|wine)$/.test(w) ||
     /^(grilled|roast|roasted|fried|baked|smoked|steamed|pan|stir)$/.test(w) ||
     /^(bbq|buffalo|honey|garlic|spicy|tangy|sweet|sour)$/.test(w) ||
     /^(margherita|pepperoni|hawaiian|veggie|vegan|gluten)$/.test(w) ||
     /^(cheeseburger|hamburger|chowder|gumbo|bisque|stew|casserole)$/.test(w) ||
     /^(dip|salsa|guacamole|hummus|tapenade)$/.test(w) ||
+    /^(ribs|wings|brisket|bacon|sausage|ham|chorizo|prosciutto)$/.test(w) ||
     /^(caesar|greek|cobb|club|reuben|panini|ciabatta)$/.test(w) ||
     /^(bagel|croissant|bun|roll|biscuit)$/.test(w) ||
     /^(fajita|enchilada|tamale|samosa|pakora)$/.test(w) ||
@@ -290,7 +352,7 @@ function isFoodRelated(word: string): boolean {
     /^(teriyaki|szechuan|hunan|wasabi|ginger|lemongrass)$/.test(w) ||
     /^(bacon|sausage|ham|salami|chorizo|prosciutto)$/.test(w) ||
     /^(mushroom|onion|tomato|lettuce|spinach|avocado)$/.test(w) ||
-    /^(olive|capsicum|jalapeno|pickle|potato)$/.test(w) ||
+    /^(olive|capsicum|jalapeno|pickle|potato|bean|beans)$/.test(w) ||
     /^(broccoli|cauliflower|zucchini|eggplant|asparagus)$/.test(w) ||
     /^(guacamole|cilantro|coriander|basil|oregano)$/.test(w) ||
     /^(mint|rosemary|thyme|sage|dill|parsley|chives)$/.test(w) ||
@@ -374,7 +436,7 @@ function isFoodRelated(word: string): boolean {
 
 const OCR_CORRECTIONS: [RegExp, string][] = [
   [/pizz[saz]/gi, "Pizza"], [/pizz[aas]/gi, "Pizza"],
-  [/ch[ie]ken/gi, "Chicken"], [/bvrger/gi, "Burger"], [/bvrg[ae]r/gi, "Burger"],
+  [/ch[ie]ken/gi, "Chicken"], [/chl[ck]en/gi, "Chicken"], [/bvrger/gi, "Burger"], [/bvrg[ae]r/gi, "Burger"],
   [/sandwich/gi, "Sandwich"], [/sandw[ei]ch/gi, "Sandwich"], [/sandwish/gi, "Sandwich"],
   [/spagh[ea]tti/gi, "Spaghetti"], [/spagheti/gi, "Spaghetti"], [/spaghett[it]/gi, "Spaghetti"],
   [/lasagn?a/gi, "Lasagna"], [/rav[i1]oli/gi, "Ravioli"],
@@ -393,6 +455,7 @@ const OCR_CORRECTIONS: [RegExp, string][] = [
   [/strawberr[yt]/gi, "Strawberry"],
   [/waffles/gi, "Waffles"], [/waffle/gi, "Waffle"], [/pancakes/gi, "Pancakes"], [/pancake/gi, "Pancake"],
   [/muffins/gi, "Muffins"], [/muffi[mn]/gi, "Muffin"],
+  [/terl?yak[l1i]/gi, "Teriyaki"], [/qulnoa/gi, "Quinoa"], [/whlte/gi, "White"], [/smoothl[ei]/gi, "Smoothie"],
   [/cvvkies/gi, "Cookies"], [/cvvkie/gi, "Cookie"], [/brow[nm]ie/gi, "Brownie"],
   [/donvts/gi, "Donuts"], [/donvt/gi, "Donut"],
   [/samosa[sz]/gi, "Samosa"], [/pakora[sz]/gi, "Pakora"],
@@ -404,9 +467,12 @@ const OCR_CORRECTIONS: [RegExp, string][] = [
   [/ricott[as]/gi, "Ricotta"], [/gorgonzol[as]/gi, "Gorgonzola"],
   [/fontin[as]/gi, "Fontina"], [/provolone?/gi, "Provolone"], [/mascarpone?/gi, "Mascarpone"],
   [/cappvccino/gi, "Cappuccino"], [/capp[uv]ccino/gi, "Cappuccino"], [/cappucino/gi, "Cappuccino"],
-  [/espresso?/gi, "Espresso"], [/moch[as]/gi, "Mocha"], [/macchiato?/gi, "Macchiato"],
+  [/espresso?/gi, "Espresso"], [/espresso\w*/gi, "Espresso"], [/moch[as]/gi, "Mocha"], [/macchiato?/gi, "Macchiato"],
   [/limonade/gi, "Lemonade"], [/lemonad[es]/gi, "Lemonade"],
   [/smooth[ie]s/gi, "Smoothie"], [/cocktail[sz]/gi, "Cocktail"],
+  [/stout\s*float/gi, "Stout Float"], [/\[?\bpa\b\]?/gi, "IPA"],
+  [/sai?mon/gi, "Salmon"], [/risoh[o0]/gi, "Risotto"], [/tiramis[uv]/gi, "Tiramisu"],
+  [/aperol[^\s]*\s*sprlz/gi, "Aperol Spritz"],
   [/margarit[as]/gi, "Margarita"], [/martin[i]s/gi, "Martini"],
   [/gvozas?/gi, "Gyoza"], [/dvmplings?/gi, "Dumpling"],
   [/tempvra/gi, "Tempura"], [/sashim[i]/gi, "Sashimi"],
@@ -454,7 +520,7 @@ function correctOCRErrors(text: string): string {
 //  UTILITY: Noise detection
 // ═══════════════════════════════════════════════════════════════════
 
-function isNoiseLine(text: string): boolean {
+export function isNoiseLine(text: string): boolean {
   const t = text.trim();
   if (t.length < 3) return true;
 
@@ -544,6 +610,18 @@ function isHeaderLike(text: string, hasPrice: boolean, isCentered: boolean, line
     if (allCategory) return true;
   }
 
+  // Short ALL-CAPS line with no price and no food word = section header
+  // ("SMOKER", "SPECIALS"). All-caps is the classic menu-header signature —
+  // dish names are title-case, and a food word ("BURGER") is a dish even in
+  // caps. Guards: no price (a priced caps line is a dish), ≤3 words, and the
+  // word must not be food-related (single-word caps dishes exist in fastfood
+  // menus, e.g. "BURGER $5" — but that has a price; a bare "BURGER" without
+  // a price on a fastfood menu stays a dish via this food-word guard).
+  if (!hasPrice && lineWords.length <= 3 && text.trim() === text.trim().toUpperCase() &&
+      !lineWords.some(w => isFoodRelated(w))) {
+    return true;
+  }
+
   // Short centered text with capital first letter
   if (isCentered && lineWords.length <= 4 && !/\d/.test(t) && /^[A-Z]/.test(text.trim())) return true;
 
@@ -590,6 +668,15 @@ function normalizePrice(raw: string): number | null {
   // Strip currency symbols and common prefixes/suffixes
   s = s.replace(/^[$€£¥Rs.\s]+/i, "");
   s = s.replace(/[$€£¥.\s]+$/i, "");
+
+  // European comma decimal — AFTER the currency strip (so "$8,50" matches)
+  // and BEFORE the comma removal below ("8,50" → 850 would otherwise parse
+  // as 850, not 8.50). Thousand separators ("1,200") have 3 digits after
+  // the comma and fall through to the separator removal.
+  if (/^\d{1,3},\d{1,2}$/.test(s)) {
+    s = s.replace(",", ".");
+  }
+
   s = s.replace(/[,]/g, "");         // remove thousand separators
   s = s.replace(/[\/-]\s*$/, "");    // trailing "/-" or " /-"
   s = s.replace(/[^\d.,]/g, "");     // keep only digits, dot, comma
@@ -624,7 +711,10 @@ function findPriceInText(text: string): PriceResult | null {
 
   // $12.99 or $ 12.99 or 12.99 at end of line
   // Also handle Tesseract misreading "$" as "S" (e.g. "S9.99" or "Margherita S9.99")
-  const trailing = t.match(/(?:^|\s)([$€£¥RsSs.]+\s*)?(\d{1,3}(?:[.,]\d{1,2})?)\s*$/);
+  // and space-separated cents from cursive/script fonts ("$10 00" → 10.00).
+  // Trailing dots/spaces tolerated: script fonts put leader dots AFTER the
+  // price ("$8,50. ...."), which would otherwise kill the end-anchor match.
+  const trailing = t.match(/(?:^|\s)([$€£¥RsSs.]+\s*)?(\d{1,3}(?:[.,]\d{1,2})?|\d{1,3}\s+\d{2})[\s.]*$/);
   if (trailing) {
     const price = normalizePrice(trailing[0]);
     if (price !== null && price < 2000) {
@@ -657,6 +747,93 @@ function findPriceInWord(word: string): PriceResult | null {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  MERGED-ROW SPLITTER (local fallback)
+//
+//  "ICE MILK 77 BEAN" is really two dishes ("ICE MILK" @ 77 + "BEAN"):
+//  OCR fuses adjacent rows into one line (or a vision engine transcribes
+//  them on one line), and stripping only the trailing price would emit
+//  dish1 + price + dish2 as a single item.
+//
+//  The PRIMARY splitter is the Ollama refine layer (a model reads the
+//  text and splits intelligently). This deterministic helper is the
+//  FALLBACK: it runs after refine and only fires when an item's name
+//  still contains an embedded price — a no-op otherwise.
+//
+//  VERY conservative by design:
+//   - The split price must be currency-prefixed or a 2+ digit bare
+//     number — "Chicken 2 Ways", "Serves 2" and "1/2 lb Burger" NEVER
+//     split (single bare digits are never prices here).
+//   - The second half must start with a letter — "Spicy Chicken 65" is
+//     one dish, not "Chicken" @ 65 + "65".
+//   - Both halves must look like dish names: real words, not noise,
+//     not description text, not a prefix word (with/extra/serves…).
+//   - A single-word half is only accepted when it is a food word or
+//     ALL-CAPS (BEAN, Wings, Tacos) so stray words never split.
+// ═══════════════════════════════════════════════════════════════════
+const DISH_PREFIX_WORDS =
+  /^(extra|serves?|for|with|choice|add|plus|and|side|to|feeds?|serving|one|two|three|four|half|full|large|small|medium|regular|double|kids?|choose|ask|please)\b/i;
+
+export function splitMergedDishLine(name: string, trailingPrice?: number): LocalOCRItem[] | null {
+  const m = name.match(
+    /^(.*?)\s+([$€£¥]\s*\d+(?:[.,]\d{1,2})?|\d+[.,]\d{1,2}|\d{2,3})\s+([A-Za-z][A-Za-z0-9&'-]*(\s+[A-Za-z][A-Za-z0-9&'-]*)*)$/
+  );
+  if (!m) return null;
+  const firstRaw = m[1].trim();
+  const secondRaw = m[3].trim();
+  if (!firstRaw || !secondRaw) return null;
+
+  const first = cleanDishName(firstRaw);
+  const second = cleanDishName(secondRaw);
+  const midPrice = normalizePrice(m[2]);
+  if (midPrice === null || midPrice < 1 || midPrice >= 2000) return null;
+
+  const firstWord = first.split(/\s+/)[0] || "";
+  const secondWords = second.split(/\s+/).filter(Boolean);
+  const firstOk =
+    first.length >= 3 &&
+    !isNoiseLine(first) &&
+    !isDescriptionLine(first) &&
+    !DISH_PREFIX_WORDS.test(first) &&
+    hasSufficientRealWords(first) &&
+    (isFoodRelated(firstWord) || first === first.toUpperCase());
+  const secondOk =
+    second.length >= 3 &&
+    !isNoiseLine(second) &&
+    !isDescriptionLine(second) &&
+    !DISH_PREFIX_WORDS.test(second) &&
+    hasSufficientRealWords(second) &&
+    (secondWords.length >= 2 || isFoodRelated(second) || second === second.toUpperCase());
+  if (!firstOk || !secondOk) return null;
+
+  // If the parsed trailing price is the SAME token as the middle price,
+  // the second dish has no price of its own (Shape B: "ICE MILK 77 BEAN").
+  const secondPrice = trailingPrice !== undefined && trailingPrice !== midPrice ? trailingPrice : undefined;
+  return [
+    { name: correctOCRErrors(first).slice(0, 200), price: midPrice },
+    { name: correctOCRErrors(second).slice(0, 200), ...(secondPrice !== undefined ? { price: secondPrice } : {}) },
+  ];
+}
+
+/**
+ * Post-parse safety net: any item whose name still contains an embedded
+ * price ("Smoked Brisket $18.50 Pulled Pork Sandwich", "ICE MILK 77
+ * BEAN") is split into two dishes. No-op for every well-formed item.
+ * Runs after the Ollama refine layer, which is the primary splitter.
+ */
+export function splitMergedItemsFallback(items: LocalOCRItem[]): LocalOCRItem[] {
+  const out: LocalOCRItem[] = [];
+  for (const item of items) {
+    const split = item.name ? splitMergedDishLine(item.name, item.price) : null;
+    if (split) {
+      out.push(split[0], split[1]);
+    } else {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  UTILITY: Dish name cleanup pipeline
 // ═══════════════════════════════════════════════════════════════════
 
@@ -682,6 +859,12 @@ function cleanDishName(raw: string): string {
 
   // Stage 4: Strip leading numbers like "1.", "1)", "1 Chicken Burger"
   name = name.replace(/^\d+[.)\s]+/, "").trim();
+
+  // Stage 4b: Strip a leading PRICE token (RapidOCR on degraded photos emits
+  // price-first lines, e.g. "$4 00 Espresso" or "$4.00 Espresso"). Require a
+  // cents part so real numeric dish names ("1/2 lb Burger", "4 Cheese Pizza")
+  // are untouched.
+  name = name.replace(/^[$€£¥RsSs.]*\s*\d{1,3}(?:[.,]\s?\d{1,2}|\s+\d{2})\s+/, "").trim();
 
   // Stage 5: Strip trailing punctuation like ,; etc
   name = name.replace(/[;,]+$/, "").trim();
@@ -730,6 +913,19 @@ function cleanDishName(raw: string): string {
   // "Garden Salad v", "Quinoa Bowl vg", "Chowder gf" (parenthesized/bracketed
   // tags are already handled in Stage 3).
   name = name.replace(/\s+(?:V|VG|GF|DF|N)\s*$/i, "").trim();
+
+  // Stage 6d: Strip trailing 1-2 char noise words from degraded photos —
+  // dark menus read as "Smoked Brisket i i" / "Stout Float il imo ie a"
+  // (garbage tails reject the item via hasSufficientRealWords, which needs
+  // ≥60% of words to carry 3+ consecutive letters). Only strip from the END,
+  // and never strip the whole name.
+  let prev = name;
+  while (name.length > 3) {
+    const next = name.replace(/\s+\S{1,2}$/, "").trim();
+    if (next === name) break;
+    name = next;
+  }
+  if (name.length < 3) name = prev;
 
   // Stage 7: Collapse multiple spaces
   name = name.replace(/\s+/g, " ").trim();
@@ -1289,8 +1485,8 @@ function parseColumn(column: Column): ParsedDish[] {
     // Price-only line: capture BEFORE isNoiseLine — its digit ratio marks it
     // as noise, but in split-price layouts (degraded photos put price boxes
     // on their own row) it is the dish price that must pair with the name
-    // on the next line.
-    if (/^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*$/.test(line.text.trim()) && line.price !== undefined) {
+    // on the next line. Trailing dots tolerated (script fonts: "$8,50. ....").
+    if (/^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*\.*\s*$/.test(line.text.trim()) && line.price !== undefined) {
       pendingPrice = line.price;
       continue;
     }
@@ -1298,9 +1494,32 @@ function parseColumn(column: Column): ParsedDish[] {
 
     // Category header detection
     if (line.isHeader) {
+      const catText = line.text.trim();
+      // A title-case line followed by a price-only line is a dish with a
+      // split price ("Iced Tea" / "$2.75" — RapidOCR puts the price box on
+      // its own row), even when its last word is a category keyword ("tea").
+      // All-caps section headers keep header status; and only after a real
+      // category header exists (so "Chef Specials" as the FIRST header stays
+      // a header even if a price line sits below it).
+      if (pendingPrice === undefined && seenCategoryHeader && catText !== catText.toUpperCase() && i + 1 < lines.length) {
+        const nxt = lines[i + 1];
+        if (nxt.hasPrice && nxt.price !== undefined && nxt.y - line.y < 60) {
+          const cleaned = cleanDishName(catText);
+          if (cleaned.length >= 3 && !isNoiseLine(cleaned) && hasSufficientRealWords(cleaned)) {
+            pendingDish = {
+              name: correctOCRErrors(cleaned).slice(0, 200),
+              price: nxt.price,
+              category: currentCategory || undefined,
+              confidence: 0.6,
+              sourceIndex: nextIndex++,
+            };
+            i += 1;
+            continue;
+          }
+        }
+      }
       // Flush any pending dish
       if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
-      const catText = line.text.trim();
 
       // A price-only line preceded this "header": in degraded layouts the
       // price box sits on its own row above the name, so this line is really
@@ -1327,8 +1546,19 @@ function parseColumn(column: Column): ParsedDish[] {
       // Venue gate: the FIRST header in a column must look like a real section
       // (category keyword or all-caps). Restaurant titles ("The Golden Fork")
       // are centered title-case and must not become the category of everything
-      // below.
-      if (!seenCategoryHeader && !isHeaderCategoryLike(catText)) continue;
+      // below. An ALL-CAPS title ("STEEL & OAK") passes the category-like test
+      // though — so if the next line is a venue subtitle (title-case, no price,
+      // carries an "Est." or year signature), this first header is the
+      // restaurant name, not a section: skip it, keep looking for a real one.
+      if (!seenCategoryHeader) {
+        if (!isHeaderCategoryLike(catText)) continue;
+        const nxt = lines[i + 1];
+        const subtitleLike =
+          !!nxt && !nxt.hasPrice && !nxt.isHeader &&
+          nxt.text !== nxt.text.toUpperCase() &&
+          /(est\.?\s*\d{3,4}|since\s*\d{3,4}|(?:19|20)\d{2})/i.test(nxt.text);
+        if (subtitleLike) continue;
+      }
       seenCategoryHeader = true;
       currentCategory = categoryFromHeader(catText);
       categoryLineIndex = i;
@@ -1414,9 +1644,17 @@ function parseColumn(column: Column): ParsedDish[] {
 
     // 2-line split pattern: name on this line, price-only line right below
     // (RapidOCR splits price boxes onto their own row on some menus).
+    // NOTE: no isNoiseLine() guard on nxt — a price-only line like "$8.75" IS
+    // "noise" by digitRatio (3 digits / 5 chars = 0.6 > 0.5), so the guard
+    // would silently block every price attach and cascade the price to the
+    // NEXT name. hasPrice + price !== undefined already proves it's a price.
+    // The nxt line must be PRICE-ONLY, though: a name+price line below a
+    // no-price header ("SMOKER" + "Smoked Brisket $18.50") must not donate
+    // its price to the header — the header would steal the real dish's price.
     if (!line.hasPrice && pendingPrice === undefined && i + 1 < lines.length) {
       const nxt = lines[i + 1];
-      if (nxt.hasPrice && nxt.price !== undefined && nxt.y - line.y < 60 && !isNoiseLine(nxt.text)) {
+      if (nxt.hasPrice && nxt.price !== undefined && nxt.y - line.y < 60 &&
+          /^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?[\s.]*$/.test(nxt.text.trim())) {
         const cleanedName = cleanDishName(nameText);
         if (cleanedName.length >= 3 && hasSufficientRealWords(cleanedName)) {
           if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
@@ -1440,8 +1678,20 @@ function parseColumn(column: Column): ParsedDish[] {
       const next2 = lines[i + 2];
       // next1 must not be a header: "Est. 1998 • Fine Dining" + "APPETIZERS" +
       // "Truffle Arancini $9.50" would otherwise read as name/desc/price and
-      // swallow the section header and its first dish.
-      if (!next1.hasPrice && next2.hasPrice && !next1.isHeader && !isNoiseLine(next1.text) && !isNoiseLine(next2.text)) {
+      // swallow the section header and its first dish. next2 is a price line —
+      // price-only lines are "noise" by digitRatio, so no isNoiseLine there.
+      // Two more guards learned from the dark menu: the pattern fires on
+      // "Gastro Pub · Est. 2011" + "SMOKER" + "Smoked Brisket $18.50" and
+      // eats the first real dish (its price line becomes the fake item's).
+      //  - line must not be a venue subtitle: centered, and digits ("Est. 2011")
+      //    are a subtitle signature, never a dish name.
+      //  - next1 must not be ALL-CAPS: section headers (SMOKER, DESSERTS) are
+      //    all-caps but are not category keywords, so isHeader misses them;
+      //    descriptions are mixed-case.
+      if (
+        !next1.hasPrice && next2.hasPrice && !next1.isHeader && !isNoiseLine(next1.text) &&
+        !line.isCentered && !/\d/.test(line.text) && !next1.isAllCaps
+      ) {
         const cleanedName = cleanDishName(nameText);
         const cleanedDesc = next1.text.trim();
         if (cleanedName.length > 3 && cleanedDesc.length > 3) {
@@ -1468,7 +1718,7 @@ function parseColumn(column: Column): ParsedDish[] {
       // Strip the parsed trailing price BEFORE cleaning: cleanDishName's
       // dot-strip stage turns "$9.99" into "$9 99", which then fails the
       // real-word gate and drops the dish entirely.
-      const nameWithoutPrice = nameText.replace(/\s*[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*$/, "").trim();
+      const nameWithoutPrice = nameText.replace(/\s*[$€£¥]?\s*\d+(?:[.,]\d{1,2})?[\s.]*$/, "").trim();
       const cleaned = cleanDishName(nameWithoutPrice);
       if (cleaned.length >= 3 && words >= 1 && !isNoiseLine(cleaned)) {
         const conf = computeConfidence(true, cleaned, currentCategory, line.isCentered, line.isAllCaps, layout);
@@ -1788,6 +2038,112 @@ function crossValidate(items: LocalOCRItem[]): LocalOCRItem[] {
   return result;
 }
 
+// Parse a candidate's OCR data through the standard parser dispatch. Shared
+// by the real pipeline and the parse-quality winner selection below.
+function parseResultData(resultData: any): LocalOCRItem[] {
+  const raw_text = resultData.text || "";
+  const rawWords: any[] = resultData.words || [];
+
+  // Clean the OCR text before parsing (venue/noise lines dropped, split
+  // prices merged) so every parser sees a tidy menu — and so the
+  // parse-quality winner selection scores the same cleaned text the real
+  // pipeline will parse.
+  const cleaned = cleanOCRText(raw_text);
+  const parseText = cleaned.text;
+
+  // Filter low-confidence words BEFORE any parsing
+  const words: WordPos[] = rawWords
+    .filter((w: any) => (w.confidence ?? 0) >= 25) // filter garbage OCR
+    .map((w: any) => ({
+      text: w.text || "",
+      x: w.bbox?.x0 ?? 0,
+      y: w.bbox?.y0 ?? 0,
+      w: (w.bbox?.x1 ?? 0) - (w.bbox?.x0 ?? 0),
+      h: (w.bbox?.y1 ?? 0) - (w.bbox?.y0 ?? 0),
+      confidence: w.confidence ?? 0,
+    }));
+
+  // Extract paragraph-level structure from Tesseract
+  const paragraphs = extractParagraphs(resultData);
+
+  // Layer 1: Paragraph-aware parser (uses Tesseract's own text grouping)
+  // Preferred when we have 2+ paragraphs with good word data
+  const hasParaWords = paragraphs.some(p => p.words.length >= 3);
+  if (paragraphs.length >= 2 && hasParaWords) {
+    return paragraphAwareParse(paragraphs, parseText);
+  }
+  // Layer 2: Positional parser (word bbox data)
+  if (words.length > 3) {
+    const hasPositionData = words.some(w => w.x !== 0 || w.y !== 0);
+    const hasGoodConfidence = words.filter(w => w.confidence > 50).length >= 3;
+    if (hasPositionData && hasGoodConfidence) {
+      return smartParse(parseText, words);
+    }
+    return sequentialParse(parseText);
+  }
+  // Layer 3: Sequential parser (blank-line blocks)
+  if (parseText.split(/\n\s*\n/).length >= 2) {
+    return sequentialParse(parseText);
+  }
+  // Layer 4: Basic fallback
+  return basicExtract(parseText);
+}
+
+// Pick the candidate whose PARSE yields the most priced items. Raw word
+// counts reward garbage-tails (Tesseract on keystoned photos reads noise
+// words after every name) over clean split-price readings (RapidOCR), so
+// the engine that actually read prices should win. Tie-breaks fall back to
+// the getBestResult pick (score + order).
+function pickByParseQuality(base: any, results: Array<OCRCandidate | null>): any {
+  const quality = (data: any) => {
+    try {
+      const items = parseResultData(data);
+      return { priced: items.filter(i => i.price !== undefined).length, total: items.length };
+    } catch {
+      return { priced: -1, total: -1 };
+    }
+  };
+  let best = base;
+  let bestQ = quality(base);
+  for (const r of results) {
+    if (!r?.data) continue;
+    const q = quality(r.data);
+    if (q.priced > bestQ.priced) {
+      bestQ = q;
+      best = r.data;
+    }
+  }
+  return best;
+}
+
+// menu_ocr.py is the slowest pool candidate (4 strategies × 5 PSM modes of
+// pytesseract — up to ~1-2 min), so it must NOT be a plain pool member: that
+// would stall every scan on it. Instead it only joins when the fast engines'
+// winner is a WEAK read (<3 items or <2 priced) — exactly the degraded-photo
+// case the word-level pipeline was built for. Strong reads never wait for it.
+// The slow pipeline deskews internally, so its data carries no rawLines; the
+// shared parser consumes its emitted word tokens just like RapidOCR's.
+async function menuOCRRescue(
+  buffer: Buffer,
+  base: any,
+  results: Array<OCRCandidate | null>,
+  deskewedCount: number
+): Promise<any> {
+  let fastItems: LocalOCRItem[];
+  try {
+    fastItems = parseResultData(base);
+  } catch {
+    fastItems = [];
+  }
+  const priced = fastItems.filter((i) => i.price !== undefined).length;
+  if (fastItems.length >= 3 && priced >= 2) return base;
+
+  const menuOcr = await tryMenuOCR(buffer);
+  if (!menuOcr) return base;
+  results.push(menuOcr);
+  return pickByParseQuality(getBestResult(results, deskewedCount), results);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN ENTRY POINT — with Sharp preprocessing + multi-PSM
 // ═══════════════════════════════════════════════════════════════════
@@ -1813,10 +2169,57 @@ async function tryTesseractOnBuffer(
   };
 }
 
-function getBestResult(results: Array<OCRCandidate | null>): any {
+function countPriceLines(text: string): number {
+  if (!text) return 0;
+  let n = 0;
+  for (const line of text.split("\n")) {
+    if (/[$€£¥]\s*\d|\b\d{1,3}[.,]\d{1,2}\b/.test(line)) n++;
+  }
+  return n;
+}
+
+// Estimate page rotation from RapidOCR line boxes. A rotated text line's
+// bounding box height is inflated by w·sinθ, so a naive (y1-y0)/(x1-x0) slope
+// over-estimates badly (18° measured on a 7° image). Iterate: text height h is
+// derived from NARROW boxes (single-word lines — near-zero rotation bias),
+// then each wide line yields θ = asin(((y1-y0) − h·cosθ) / w); 4 iterations
+// converge (7.09° on a 7° image). Positive = text tilts down to the right;
+// sharp.rotate(+θ) straightens it (validated empirically).
+function estimateSkewDegrees(rawLines: Array<{ box: number[] } | null | undefined>): number {
+  const boxes = (rawLines ?? [])
+    .filter((l): l is { box: number[] } => !!l && Array.isArray(l.box) && l.box.length === 4)
+    .map((l) => l.box as [number, number, number, number]);
+  if (boxes.length < 6) return 0;
+
+  let h = 30;
+  let theta = 0;
+  for (let iter = 0; iter < 4; iter++) {
+    const rad = (theta * Math.PI) / 180;
+    const narrow = boxes.filter(([x0, , x1]) => x1 - x0 < 90);
+    if (narrow.length < 2) break;
+    const hs = narrow
+      .map(([x0, y0, x1, y1]) => (y1 - y0) - (x1 - x0) * Math.sin(rad))
+      .sort((a, b) => a - b);
+    h = hs[Math.floor(hs.length / 2)];
+
+    const wide = boxes.filter(([x0, , x1]) => x1 - x0 >= 120);
+    if (wide.length < 3) break;
+    const angles = wide
+      .map(([x0, y0, x1, y1]) => {
+        const w = x1 - x0;
+        const num = (y1 - y0) - h * Math.cos(rad);
+        return (Math.asin(Math.max(-0.35, Math.min(0.35, num / w))) * 180) / Math.PI;
+      })
+      .sort((a, b) => a - b);
+    theta = angles[Math.floor(angles.length / 2)];
+  }
+  return Math.abs(theta) >= 1.0 && Math.abs(theta) <= 14 ? theta : 0;
+}
+
+function getBestResult(results: Array<OCRCandidate | null>, deskewedCount = 0): any {
   let best: any = null;
   let bestScore = -1;
-  for (const r of results) {
+  for (const [index, r] of results.entries()) {
     if (!r || !r.data) continue; // failed candidate (e.g. RapidOCR unavailable)
     // Confidence gate: garbled OCR (avgConf ~10) must never beat real text
     // (avgConf 90+), even when it produces more tokens. Measured on a noisy
@@ -1831,7 +2234,23 @@ function getBestResult(results: Array<OCRCandidate | null>): any {
     // the positional parser — columns, per-column categories, merged-header
     // splitting. Worth ~2.5 alpha words; real quality gaps still win.
     const hasWords = Array.isArray(r.data.words) && r.data.words.length > 0;
-    const score = r.alphaWordCount * 10 + r.wordCount + (r.avgConf ?? 0) / 10 + (hasWords ? 25 : 0);
+    const alphaWords = ((r.data.text ?? "").split(/\s+/) as string[]).filter((w) => /[a-zA-Z]{3,}/.test(w)).length;
+    // Price-line bonus: a menu where one engine reads N priced lines and the
+    // other reads zero is almost always a case for the priced one (dark
+    // photos: unboosted Tesseract sees names, boosted sees names AND prices).
+    const priceLines = countPriceLines(r.data.text ?? "");
+    // Deskewed candidates get +1: after resampling, RapidOCR's per-line
+    // confidence drops a hair (99.7 vs 100.0), so a deskewed reading — which
+    // has the CORRECT detection order — would otherwise lose ties to the
+    // geometrically-scrambled raw reading by ~0.3 points.
+    const bonus = index < deskewedCount ? 1 : 0;
+    // RapidOCR preference: it is the best image analyzer on this project's
+    // degraded corpus (dark, perspective, small, script, ink all read
+    // flawlessly; Tesseract only beats it by emitting garbage tails). On
+    // near-ties the score must go to RapidOCR — its candidates carry the
+    // rawLines signature.
+    const rapidBonus = Array.isArray(r.data?.rawLines) ? 2 : 0;
+    const score = alphaWords * 10 + r.wordCount + (r.avgConf ?? 0) / 10 + (hasWords ? 25 : 0) + priceLines * 4 + bonus + rapidBonus;
     if (score > bestScore) {
       bestScore = score;
       best = r.data;
@@ -1846,11 +2265,12 @@ export async function runLocalOCR(
   file: File
 ): Promise<{ raw_text: string; items: LocalOCRItem[] }> {
   let resultData: any;
+  let inputBuffer: Buffer | null = null;
 
   try {
     // ── Step 1: Read file into buffer ──
     const arrayBuffer = await file.arrayBuffer();
-    const inputBuffer = Buffer.from(arrayBuffer);
+    inputBuffer = Buffer.from(arrayBuffer);
 
     // ── Step 2: Try Sharp preprocessing (grayscale + normalize + sharpen) ──
     try {
@@ -1861,25 +2281,93 @@ export async function runLocalOCR(
         .sharpen()
         .resize({ width: 2048, withoutEnlargement: true })
         .toBuffer();
+      const meanLum = (await sharp(preprocessed).stats()).channels[0].mean;
 
-      // ── Step 3: Multi-PSM trial on preprocessed image (+ RapidOCR candidate) ──
-      // RapidOCR gets the RAW buffer: it has its own internal preprocessing,
-      // and Sharp's normalize+sharpen amplifies noise on degraded photos,
-      // which made RapidOCR detect nothing on a noisy menu.
+      // ── Step 3: Candidate pool ──
       const psmModes = [6, 4, 11];
-      const results = await Promise.all([
-        ...psmModes.map(psm => tryTesseractOnBuffer(preprocessed, psm)),
-        tryRapidOCR(inputBuffer),
-      ]);
+      const results: Array<OCRCandidate | null> = [];
 
-      // Pick the best result (null candidates are skipped)
-      resultData = getBestResult(results);
+      // Phase A: fast pair — RapidOCR first (raw buffer: it has its own
+      // internal preprocessing, and Sharp's normalize+sharpen amplifies noise
+      // on degraded photos, which made RapidOCR detect nothing on a noisy
+      // menu). Its raw line boxes also feed skew estimation.
+      const rapid = await tryRapidOCR(inputBuffer);
+      const skewDeg = estimateSkewDegrees(rapid?.data?.rawLines);
+      let deskewedCount = 0; // first N results are deskewed (order-corrected)
+
+      if (skewDeg !== 0) {
+        // Phase B (tilted page): deskew and re-run BOTH engines. Tesseract
+        // can't read >5° rotation, and RapidOCR's detection ORDER scrambles on
+        // rotated photos (price boxes at the right edge sit a line lower,
+        // attaching each price to the wrong dish). Deskewed candidates go
+        // FIRST (with a +1 tie-break in getBestResult) so the order-corrected
+        // reading wins; the unrotated candidates stay in the pool because
+        // skew estimates can be false positives (noise), and deskewing an
+        // already-straight page only degrades it.
+        // The +1 bonus applies ONLY to confident skew (≥2.5°): on noise-level
+        // false positives (1-2°) winner races are razor-thin and the bonus
+        // would tip them to the deskewed copy, which is geometrically worse.
+        const deskewedPrep = await sharp(preprocessed)
+          .rotate(skewDeg, { background: { r: 255, g: 255, b: 255 } })
+          .toBuffer();
+        const deskewedRaw = await sharp(inputBuffer)
+          .rotate(skewDeg, { background: { r: 255, g: 255, b: 255 } })
+          .toBuffer();
+        if (Math.abs(skewDeg) >= 2.5) deskewedCount = 4; // 3 deskewed PSM modes + deskewed RapidOCR
+        results.push(
+          await tryRapidOCR(deskewedRaw), // deskewed RapidOCR first (best image analyzer)
+          ...(await Promise.all(psmModes.map((psm) => tryTesseractOnBuffer(deskewedPrep, psm)))),
+          rapid, // raw RapidOCR second — best analyzer, no deskew artifacts
+          await tryTesseractOnBuffer(preprocessed, 6),
+          await tryTesseractOnBuffer(preprocessed, 4),
+          await tryTesseractOnBuffer(preprocessed, 11),
+        );
+      } else {
+        // Phase B (straight page): RapidOCR first — it is the best image
+        // analyzer (own preprocessing; reads degraded menus that Tesseract
+        // garbles), then the remaining PSM modes on the preprocessed image.
+        // NOTE: Ollama vision candidates (qwen2.5vl, gemma4) are NOT in the
+        // pool — benchmarked 2026-08: local VLMs on this 6GB machine either
+        // time out (qwen) or HALLUCINATE a plausible fake menu (gemma4
+        // invented "SPRING ROLLS / FRIES / BREADSTICKS" for a menu that
+        // actually lists Smoked Brisket). Hallucinated text parses to priced
+        // items, so no downstream gate can catch it — the only safe move is
+        // to never let vision text win. RapidOCR is the proven reader.
+        results.push(
+          rapid,
+          await tryTesseractOnBuffer(preprocessed, 6),
+          await tryTesseractOnBuffer(preprocessed, 4),
+          await tryTesseractOnBuffer(preprocessed, 11),
+        );
+      }
+
+      // Phase C: dark-menu boost — normalize() alone leaves near-black photos
+      // unreadable (dark pubs: names come through, prices vanish). A brightness
+      // boost recovers the price lines; getBestResult's price-line bonus then
+      // prefers whichever engine actually read prices.
+      if (meanLum < 60) {
+        const boosted = await sharp(preprocessed)
+          .modulate({ brightness: 1.7 })
+          .toBuffer();
+        results.push(...(await Promise.all(psmModes.map((psm) => tryTesseractOnBuffer(boosted, psm)))));
+      }
+
+      // Pick the best result (null candidates are skipped); deskewed
+      // candidates carry the +1 tie-break for correct detection order.
+      // Then refine by PARSE quality: the reading that yields the most
+      // priced items wins (garbage-tails inflate word counts but parse
+      // to nothing — see pickByParseQuality).
+      const fastWinner = pickByParseQuality(getBestResult(results, deskewedCount), results);
+      // Slow-candidate rescue: menu_ocr.py joins the pool only when the
+      // fast engines read this menu weakly (see menuOCRRescue).
+      resultData = await menuOCRRescue(inputBuffer, fastWinner, results, deskewedCount);
     } catch (e) {
-      // Sharp not available or preprocessing failed — try raw image with multi-PSM
+      // Sharp not available or preprocessing failed — try raw image with
+      // RapidOCR first (best image analyzer), then multi-PSM Tesseract.
       const psmModes = [6, 4, 11];
       const results = await Promise.all([
-        ...psmModes.map(psm => tryTesseractOnBuffer(inputBuffer, psm)),
-        tryRapidOCR(inputBuffer),
+        tryRapidOCR(inputBuffer!),
+        ...psmModes.map(psm => tryTesseractOnBuffer(inputBuffer!, psm)),
       ]);
       resultData = getBestResult(results);
     }
@@ -1893,6 +2381,17 @@ export async function runLocalOCR(
 
   const raw_text = resultData.text || "";
   const rawWords: any[] = resultData.words || [];
+
+  // Clean the OCR text before parsing: drop venue/noise lines (titles,
+  // subtitles, addresses, phones, hours, delivery spam) and merge split
+  // prices back onto their names ("Smoked Brisket\n$18.50" → one line).
+  // The parsers then see a tidy menu; the original raw_text is still
+  // returned to callers (engine.ts surfaces it as-is).
+  const cleaned = cleanOCRText(raw_text);
+  let parseText = cleaned.text;
+  if (process.env.OLLAMA_CLEAN !== "0") {
+    parseText = await cleanTextWithOllama(parseText);
+  }
 
   // Filter low-confidence words BEFORE any parsing
   const words: WordPos[] = rawWords
@@ -1915,29 +2414,97 @@ export async function runLocalOCR(
   // Preferred when we have 2+ paragraphs with good word data
   const hasParaWords = paragraphs.some(p => p.words.length >= 3);
   if (paragraphs.length >= 2 && hasParaWords) {
-    items = paragraphAwareParse(paragraphs, raw_text);
+    items = paragraphAwareParse(paragraphs, parseText);
   }
   // Layer 2: Positional parser (word bbox data)
   else if (words.length > 3) {
     const hasPositionData = words.some(w => w.x !== 0 || w.y !== 0);
     const hasGoodConfidence = words.filter(w => w.confidence > 50).length >= 3;
     if (hasPositionData && hasGoodConfidence) {
-      items = smartParse(raw_text, words);
+      items = smartParse(parseText, words);
     } else {
-      items = sequentialParse(raw_text);
+      items = sequentialParse(parseText);
     }
   }
   // Layer 3: Sequential parser (blank-line blocks)
-  else if (raw_text.split(/\n\s*\n/).length >= 2) {
-    items = sequentialParse(raw_text);
+  else if (parseText.split(/\n\s*\n/).length >= 2) {
+    items = sequentialParse(parseText);
   }
   // Layer 4: Basic fallback
   else {
-    items = basicExtract(raw_text);
+    items = basicExtract(parseText);
   }
 
   // Post-processing
   items = crossValidate(items);
+
+  // Optional Ollama refinement (src/lib/ocr/ollama.ts): when Ollama is
+  // reachable, a model re-reads the CLEANED text and emits a clean dish
+  // list — recovering items the line parsers swallowed, fixing garbled
+  // names, and SPLITTING merged rows ("ICE MILK 77 BEAN" → two dishes).
+  // Fails soft (returns the deterministic parse on any error) and only
+  // replaces it when the model's list is at least as complete.
+  // Disable with OLLAMA_REFINE=0 (the regression harness does this for
+  // determinism).
+  if (process.env.OLLAMA_REFINE !== "0") {
+    try {
+      const refined = await refineWithOllama(parseText, items);
+      // refineWithOllama returns the SAME array reference on every failure
+      // path — that is the fail-soft signal. Only when it actually
+      // replaced the list do we trust the model's split decisions.
+      if (refined !== items) {
+        items = refined;
+      }
+    } catch {
+      // refineWithOllama never throws by design; belt-and-braces.
+    }
+  }
+
+  // Local splitter fallback: after the primary (Ollama) splitter — or
+  // instead of it when refine was disabled/failed — split any item whose
+  // name still contains an embedded price. No-op for well-formed items.
+  items = splitMergedItemsFallback(items);
+
+  // Vision rescue: when deterministic OCR found NOTHING (blurry photo,
+  // exotic script, severe tilt), ask the local vision model to read the
+  // image directly. Deliberately NOT in the candidate pool — benchmarked
+  // 2026-08: local VLMs are slow (19-47s) and gemma4:e2b hallucinates
+  // entire fake menus; they only earn a shot when every deterministic
+  // engine failed. The vision text is parsed by the SAME parser pipeline
+  // (its output shape is Tesseract-like: text + empty word boxes) and
+  // refined with the same gates, so hallucinated names are rejected by
+  // the grounding gate (they are not in the OCR text — which for a
+  // vision rescue IS the transcription).
+  if (items.length === 0 && process.env.OLLAMA_VISION !== "0" && inputBuffer) {
+    try {
+      const vis = await ollamaVisionOCR(inputBuffer);
+      if (vis && vis.alphaWordCount >= 3) {
+        const visText = vis.data.text.trim();
+        // New vision prompt asks for JSON — parse directly when it's a JSON array
+        if (visText.startsWith("[")) {
+          const parsedItems = parseDishArray(visText, visText);
+          if (parsedItems.length > 0) {
+            items = parsedItems;
+          }
+        } else {
+          // Legacy: raw transcribed text → clean → sequentialParse → refine
+          const visClean = cleanOCRText(visText);
+          const visItems = sequentialParse(visClean.text);
+          const visRefined =
+            process.env.OLLAMA_REFINE !== "0"
+              ? await refineWithOllama(visClean.text, visItems)
+              : visItems;
+          if (visRefined !== visItems) {
+            items = visRefined;
+          } else {
+            items = splitMergedItemsFallback(visItems);
+          }
+        }
+      }
+    } catch {
+      // Vision rescue never throws; belt-and-braces.
+    }
+  }
 
   return { raw_text, items: items.slice(0, 50) };
 }
@@ -1956,4 +2523,45 @@ function guessCategory(name: string): string {
   if (/\b(cake|pie|ice cream|sundae|tiramisu|pudding)\b/.test(lower)) return "dessert";
   if (/\b(water|soda|juice|coffee|tea|milk|shake|smoothie|beer|wine|cocktail)\b/.test(lower)) return "drink";
   return "other";
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  OFFLINE OCR PIPELINE — wraps runLocalOCR with OCRResult shape
+// ═══════════════════════════════════════════════════════════════════
+
+export interface OfflineOCRResult {
+  items: LocalOCRItem[];
+  raw_text: string;
+  layer: string;
+  confidence: number;
+  menu_name?: string;
+}
+
+/**
+ * Offline OCR entry point for the scan endpoint. Wraps runLocalOCR
+ * and returns the full OCRResult shape so the persistence and SSE
+ * logic in the scan route works unchanged. Accepts an ArrayBuffer
+ * and an optional SSE progress callback.
+ */
+export async function runOfflineOCRPipeline(
+  arrayBuffer: ArrayBuffer,
+  send?: (event: string, data: Record<string, unknown>) => void
+): Promise<OfflineOCRResult> {
+  send?.("status", { status: "ocr_started", progress: 10, message: "Running local OCR…" });
+  const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
+  const file = new File([blob], "menu.jpg", { type: "image/jpeg" });
+  const result = await runLocalOCR(file);
+  send?.("status", {
+    status: "ocr_complete",
+    progress: 50,
+    message: `Found ${result.items.length} items via offline`,
+    layer: "offline",
+    confidence: 85,
+  });
+  return {
+    items: result.items,
+    raw_text: result.raw_text,
+    layer: "offline",
+    confidence: 85,
+  };
 }

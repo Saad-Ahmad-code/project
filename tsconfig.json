@@ -35,6 +35,12 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "test_*.ts",
+    "test_*.tsx",
+    "test_*.js",
+    "test_*.py",
+    "test_menus",
+    "corpus"
   ]
 }

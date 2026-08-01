@@ -72,7 +72,9 @@ User uploads menu photo (src/app/scan)
 
 | Path | Purpose |
 |---|---|
-| `src/lib/ocr/local.ts` | **Offline OCR** (~1,550 lines). Tesseract + Sharp + multi-PSM; 4 parsers (paragraph-aware → smartParse → sequentialParse → basicExtract); name cleanup; OCR-correction table; category keyword list; `hasSufficientRealWords` gate. |
+| `src/lib/ocr/local.ts` | **Offline OCR** (~2,400 lines). RapidOCR-first candidate pool + Tesseract multi-PSM + deskew; 4 parsers (paragraph-aware → smartParse → sequentialParse → basicExtract); Ollama refine wiring + vision rescue; name cleanup; OCR-correction table; category keyword list; `hasSufficientRealWords` gate. |
+| `src/lib/ocr/ollama.ts` | Ollama integration: `refineWithOllama` (gemma4:e2b local default, fail-soft, grounding gate), `ollamaVisionOCR` (qwen2.5vl:3b, rescue-only, `OLLAMA_VISION=0` gate). |
+| `src/lib/ocr/cleaner.ts` | Deterministic pre-parser: drops venue/noise lines, merges split prices onto names. |
 | `src/lib/ocr/engine.ts` | **Online pipeline.** Do NOT modify. References `runLocalOCR` from local.ts. |
 | `src/lib/ai/client.ts` | AI chat completions: provider fallback chain (`src/lib/ai/providers.ts`), vision OCR, `pythonOCR()` subprocess runner. |
 | `src/lib/agent/queue.ts` | Background enrichment job queue (`agent_log` collection: queued → processing → completed/failed). |
@@ -105,17 +107,42 @@ User uploads menu photo (src/app/scan)
 
 - **Preprocessing:** Sharp grayscale + normalize + sharpen + resize(2048) inside
   `runLocalOCR()` (fallback to raw image if Sharp unavailable).
-- **PSM trial:** runs PSM modes `{6, 4, 11}` in parallel **plus RapidOCR** (`rapidocr_scan.py`
-  via subprocess, PP-OCRv6 on ONNX Runtime, gets the RAW buffer — Sharp's sharpen amplifies
-  noise on degraded photos and made it detect nothing), picks the result with the most
-  alpha words. **Confidence gate:** candidates with avgConf < 40 are excluded (garbage OCR
-  scores ~10 even when it produces *more* tokens than real text); ties break toward the
-  higher-confidence engine. RapidOCR output is shaped like Tesseract data (word tokens with
-  char-proportional boxes) so the shared parser pipeline consumes it unchanged. (Online
-  engine.ts uses `{6,4,3,11,12}` — untouched.)
+- **Candidate pool order (RapidOCR is the PRIMARY reader — do not reorder):**
+  straight page = `rapid` first, then PSM `{6,4,11}` on the preprocessed image;
+  skewed page = deskewed RapidOCR first, then deskewed PSM modes, then raw RapidOCR,
+  then straight PSM modes. Sharp-fallback = RapidOCR then PSM `{6,4,11}`.
+  `getBestResult` also adds `rapidBonus = 2` when the candidate has RapidOCR's
+  `rawLines` — RapidOCR wins near-ties. Ties otherwise break toward higher
+  avgConf; candidates with avgConf < 40 are excluded (garbage OCR scores ~10 even
+  when it produces *more* tokens than real text). RapidOCR output is shaped like
+  Tesseract data (word tokens with char-proportional boxes) so the shared parser
+  pipeline consumes it unchanged. (Online engine.ts uses `{6,4,3,11,12}` — untouched.)
+- **Ollama vision models are NOT in the pool** (benchmarked 2026-08): on this 6GB
+  machine `qwen2.5vl:3b` times out (19–47s, accurate when it answers) and
+  `gemma4:e2b` HALLUCINATES an entire plausible fake menu ("SPRING ROLLS / FRIES /
+  BREADSTICKS" for a menu that actually lists Smoked Brisket). Hallucinated text
+  parses to priced items, so no downstream gate can catch it — the only safe move
+  is to never let vision text win. `qwen2.5vl:3b` runs only as a **vision rescue**:
+  when deterministic OCR yields 0 items (`OLLAMA_VISION=0` disables it for the
+  harness). Cloud Ollama models (`gpt-oss:120b-cloud`, `gemini-3-flash`, …) are all
+  text-only — none have vision.
+- **Ollama refine (`src/lib/ocr/ollama.ts`):** default model is **`gemma4:e2b`**
+  (local, benchmarked equal to the cloud `gpt-oss:120b-cloud` for names/prices/
+  categories and merged-row splitting; override with `OLLAMA_MODEL`). Runs after
+  `crossValidate` when `OLLAMA_REFINE !== "0"`. Fail-soft contract: returns the
+  SAME array reference on every error/timeout (default 30s) — reference equality
+  is the signal the local fallback splitter keys on. `parseDishArray` applies a
+  **grounding gate** (`nameGroundedInRaw`): a model name is rejected unless ≥50%
+  of its words (edit-distance ≤1) appear in the raw OCR text — a hallucinating
+  model cannot invent dishes that were never on the menu.
 - **Parser layering:** paragraph-aware (Tesseract `blocks[].paragraphs[]`) → positional
   (`smartParse`, word bounding boxes → columns) → sequential (blank-line blocks) →
   basic line filter. Word-confidence ≥25 filter runs before any parser.
+- **Header detection (`isHeaderLike`):** category keyword (first/last/all words),
+  OR short ALL-CAPS no-price line with no food word ("SMOKER", "SPECIALS") — this
+  rule was added because single-word all-caps section headers silently lost their
+  whole section's category, and the venue gate (STEEL & OAK + "Est. 2011" subtitle)
+  only applies to lines that are already `isHeader`.
 - **Column detection (`detectColumns`):** splits on a wide vertical gap; rejects a side
   that is mostly price-only lines (degraded layouts push price boxes to their own
   column) and merges lines whose x-gap is small (venue title bridging two columns).
@@ -134,8 +161,9 @@ User uploads menu photo (src/app/scan)
 - **Category/keyword logic:** ~150 category keywords, 80+ OCR-correction table entries,
   noise filters (domains, order/delivery text, HOTEL/RESTAURANT headers, ©, page x of y).
   `isFoodRelated` (used by confidence) is a separate list from category keywords — keep
-  dish-name foods like cheesecake/pavlova/éclair there so single-word desserts survive
-  the adaptive threshold.
+  dish-name foods like cheesecake/pavlova/éclair AND meats like ribs/wings/brisket there
+  so they survive the adaptive threshold (Baby Back Ribs dropped at 0.50 < 0.5118 until
+  `ribs` was added).
 
 ## Testing notes
 
@@ -145,8 +173,11 @@ User uploads menu photo (src/app/scan)
   (`menu_*.png`) + `ground_truth.json`; the harness is `test_batch.ts` at the repo ROOT
   (its imports and paths assume root CWD). Run `npx tsx test_batch.ts` — it runs every
   menu through the full local OCR pipeline and diffs against ground truth. Current
-  state: **62/62 exact (name+price+category), deterministic across runs**. Add a new
-  menu PNG + truth entries when you change parser logic.
+  state: **135/135 exact name+price+category (0 name/price diffs, 0 missing, 0 extra),
+  deterministic across runs** — first fully-green run was v12 (2026-08). The harness
+  MUST run with `OLLAMA_REFINE=0 OLLAMA_VISION=0` (live Ollama would make it
+  non-deterministic and slow). Add a new menu PNG + truth entries when you change
+  parser logic.
 - Ad-hoc scripts: name them `test_*.py` / `test_*.js` / `test_*.ts` (gitignored) and
   delete after use. `test_probe*.ts` one-off probes are fine, just delete them.
 - Parser helpers can be exercised directly with `node -e` snippets duplicating the logic,

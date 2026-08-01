@@ -47,11 +47,11 @@ export default function ScanPage() {
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (resultId && status === "complete" && localItems.length === 0) {
+    if (resultId && status === "complete") {
       router.push(`/results/${resultId}`);
       toast.success("Menu scanned successfully!");
     }
-  }, [resultId, status, localItems.length, router]);
+  }, [resultId, status, router]);
 
   useEffect(() => {
     if (error) toast.error(error);

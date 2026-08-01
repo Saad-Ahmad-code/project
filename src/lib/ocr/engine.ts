@@ -1,11 +1,14 @@
 /**
  * Multi-Layer OCR Engine
  *
- * Tries 4 layers in sequence, falling through on failure:
+ * Tries 3 layers in sequence, falling through on failure:
  *   Layer 1 — Tesseract.js (pure JS/WASM, instant)
  *   Layer 2 — Tesseract + Sharp preprocessing (higher quality)
- *   Layer 3 — Python subprocess OCR (PaddleOCR/Tesseract with advanced pipeline)
- *   Layer 4 — AI Vision API (OpenRouter → Gemini)
+ *   Layer 3 — AI Vision API (OpenRouter → Gemini)
+ *
+ * The former Layer 3 (EasyOCR subprocess) was retired: runLocalOCR's pool
+ * already includes RapidOCR (PP-OCRv6) — the stronger neural reader — plus a
+ * word-level pytesseract pipeline (menu_ocr.py); see src/lib/ocr/local.ts.
  *
  * Each layer reports progress via callback for SSE streaming.
  */
@@ -167,83 +170,9 @@ async function layer2SharpTesseract(
   }
 }
 
-// ── Layer 3: EasyOCR Python subprocess ──
+// ── Layer 3: AI Vision API (OpenRouter → Gemini) ──
 
-async function layer3PythonOCR(
-  imageBuffer: ArrayBuffer,
-  send: ProgressCallback
-): Promise<OCRResult | null> {
-  send('status', { status: 'ocr_layer3', progress: 50, message: 'Layer 3: EasyOCR engine...' });
-
-  let inputPath = '';
-  try {
-    const { execSync } = require('child_process');
-    const { writeFileSync } = require('fs');
-    const path = require('path');
-
-    const scriptPath = path.join(process.cwd(), 'src', 'scripts', 'easyocr_scan.py');
-
-    // Prefer project venv Python, fall back to system python
-    const venvPython = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
-    const pythonCmd = process.env.MENULENS_PYTHON || (
-      require('fs').existsSync(venvPython) ? venvPython : (process.env.PYTHON_CMD || 'python')
-    );
-
-    const tmpDir = process.env.TMPDIR || process.env.TMP || '/tmp';
-    inputPath = path.join(tmpDir, `menulens_easyocr_${Date.now()}.jpg`);
-    writeFileSync(inputPath, Buffer.from(imageBuffer));
-
-    const raw = execSync(
-      `"${pythonCmd}" "${scriptPath}" "${inputPath}"`,
-      { timeout: 120000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env, PYTHONPATH: '' } }
-    ).toString().trim();
-
-    let parsed: any;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return null;
-    }
-
-    if (parsed.error) {
-      logger.warn(`[OCR] Layer 3 EasyOCR error: ${parsed.error}`);
-      return null;
-    }
-
-    const items: OCRItem[] = (parsed.items || []).map((i: any) => ({
-      name: i.name || 'Unknown',
-      description: i.description || '',
-      price: i.price || undefined,
-      category: i.category || 'menu',
-      confidence: i.confidence || 0.5,
-    }));
-
-    if (items.length === 0) {
-      logger.info('[OCR] Layer 3: EasyOCR found no items');
-      return null;
-    }
-
-    logger.info(`[OCR] Layer 3: ${items.length} items from EasyOCR (conf=${parsed.avg_confidence})`);
-    return {
-      items,
-      raw_text: parsed.raw_text || '',
-      layer: 'easyocr',
-      confidence: parsed.avg_confidence || 70,
-      menu_name: parsed.menu_name,
-    };
-  } catch (err: any) {
-    logger.warn(`[OCR] Layer 3 EasyOCR failed: ${err.message?.slice(0, 150)}`);
-    return null;
-  } finally {
-    if (inputPath) {
-      try { require('fs').unlinkSync(inputPath); } catch { /* ignore */ }
-    }
-  }
-}
-
-// ── Layer 4: AI Vision API (OpenRouter → Gemini) ──
-
-async function layer4AIVision(
+async function layer3AIVision(
   imageBuffer: ArrayBuffer,
   send: ProgressCallback
 ): Promise<OCRResult | null> {
@@ -330,25 +259,15 @@ export async function runOCRPipeline(
     errors.push('Layer2: insufficient items');
   } catch (e: any) { errors.push(`Layer2: ${e.message}`); }
 
-  // Layer 3
+  // Layer 3 (AI Vision — final escalation)
   try {
-    const result = await layer3PythonOCR(imageBuffer, send);
-    if (result && result.items.length >= 2) {
-      cacheSet(hash, result);
-      return result;
-    }
-    errors.push('Layer3: insufficient items');
-  } catch (e: any) { errors.push(`Layer3: ${e.message}`); }
-
-  // Layer 4
-  try {
-    const result = await layer4AIVision(imageBuffer, send);
+    const result = await layer3AIVision(imageBuffer, send);
     if (result && result.items.length >= 1) {
       cacheSet(hash, result);
       return result;
     }
-    errors.push('Layer4: no items');
-  } catch (e: any) { errors.push(`Layer4: ${e.message}`); }
+    errors.push('Layer3: no items');
+  } catch (e: any) { errors.push(`Layer3: ${e.message}`); }
 
   // All layers failed — return best effort from layer 1 or empty
   logger.error(`[OCR] All layers failed: ${errors.join('; ')}`);

@@ -367,7 +367,7 @@ def extract_dishes(lines, raw_text, total_height):
 def run_pipeline_on_image(img):
     words = ocr_words(img)
     if not words:
-        return [], "", 0
+        return [], "", 0, []
     lines = group_words_into_lines(words)
     total_height = img.height
     raw_text = "\n".join(line_to_text(l) for l in lines)
@@ -378,7 +378,10 @@ def run_pipeline_on_image(img):
         high_conf_words = words[:]
     filtered_lines = group_words_into_lines(high_conf_words)
     items = extract_dishes(filtered_lines, raw_text, total_height)
-    return items, raw_text, overall_conf
+    # The word tokens that produced this reading. local.ts shapes them into
+    # Tesseract-like data so the shared parser re-parses this pipeline's
+    # output like any other pool candidate.
+    return items, raw_text, overall_conf, high_conf_words
 
 raw = Image.open(r"__IMG_PATH__").convert("RGB")
 raw = deskew(raw)
@@ -387,21 +390,25 @@ strategies = build_strategies(mono)
 best_result = None
 best_items_count = -1
 for label, simg in strategies:
-    items, raw_text, avg_conf_val = run_pipeline_on_image(simg)
+    items, raw_text, avg_conf_val, words = run_pipeline_on_image(simg)
     if len(items) > best_items_count or (len(items) == best_items_count and avg_conf_val > (best_result or [None, 0, 0])[2]):
         best_items_count = len(items)
-        best_result = (items, raw_text, avg_conf_val, label)
+        best_result = (items, raw_text, avg_conf_val, label, words)
 if best_result is None or best_items_count <= 0:
     fallback_img = mono.resize((mono.width * 2, mono.height * 2), Image.LANCZOS)
-    items, raw_text, avg_conf_val = run_pipeline_on_image(fallback_img)
-    best_result = (items, raw_text, avg_conf_val, "fallback-psm3")
+    items, raw_text, avg_conf_val, words = run_pipeline_on_image(fallback_img)
+    best_result = (items, raw_text, avg_conf_val, "fallback-psm3", words)
     best_items_count = len(items)
-items, raw_text, avg_conf_val, best_label = best_result
+items, raw_text, avg_conf_val, best_label, best_words = best_result
 output = {
     "menu_name": "",
     "items": items,
     "raw_text": raw_text,
     "strategy": best_label,
     "avg_confidence": round(avg_conf_val, 1),
+    # Word tokens (pytesseract geometry) from the winning strategy — local.ts
+    # shapes them into a Tesseract-like candidate for the shared parser.
+    # pythonOCR() in client.ts ignores this extra key.
+    "words": best_words,
 }
 print(json.dumps(output))

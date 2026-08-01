@@ -22,47 +22,69 @@ export async function runAgent(
   scanId: string,
   onProgress?: (done: number, total: number, dish: string) => void
 ): Promise<{ summary: string; dishes: DishResult[] }> {
-  const results = await Promise.allSettled(
-    items.map(async (item, index) => {
-      const info = await researchDish(item.name);
-      onProgress?.(index + 1, items.length, item.name);
+  // Bounded worker pool: research + image search per dish hits external APIs
+  // (AI provider + up to 6 image sources); a 40-dish menu must not fire 80
+  // concurrent requests. Results stay positional so output order matches
+  // input order regardless of completion order.
+  const ENRICHMENT_CONCURRENCY = 3;
+  const results = new Array<DishResult>(items.length);
+  let next = 0;
 
-      let images: string[] = [];
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      const item = items[index];
+
       try {
-        const imageResults = await searchDishImages(item.name);
-        images = imageResults.map((img) => img.url);
+        const info = await researchDish(item.name);
+        onProgress?.(index + 1, items.length, item.name);
+
+        let images: string[] = [];
+        try {
+          const imageResults = await searchDishImages(item.name);
+          images = imageResults.map((img) => img.url);
+        } catch (err) {
+          logger.warn(`[Agent] Image search failed for "${item.name}": ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        results[index] = {
+          id: item.id || `${scanId}-${index}-${Date.now().toString(36)}`,
+          name: item.name,
+          description: item.description,
+          ai_description: info?.description || "",
+          price: item.price,
+          category: item.category || "other",
+          origin: info?.origin || "",
+          dietary_tags: info?.dietary_tags || [],
+          images,
+          confidence: 0.9,
+        } as DishResult;
       } catch (err) {
-        logger.warn(`[Agent] Image search failed for "${item.name}": ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(`[Agent] Research failed for "${item.name}": ${err instanceof Error ? err.message : String(err)}`);
+        // Same failure shape as the old Promise.allSettled path: a random id
+        // makes the queue's write-back (db.update by id) a no-op, so the
+        // original dish doc stays untouched.
+        results[index] = {
+          id: `${scanId}-${Math.random().toString(36).slice(2, 8)}`,
+          name: "Unknown Dish",
+          description: "",
+          price: undefined,
+          category: "other",
+          origin: "",
+          dietary_tags: [],
+          images: [],
+          confidence: 0.5,
+        } as DishResult;
       }
-
-      return {
-        id: item.id || `${scanId}-${index}-${Date.now().toString(36)}`,
-        name: item.name,
-        description: item.description,
-        ai_description: info?.description || "",
-        price: item.price,
-        category: item.category || "other",
-        origin: info?.origin || "",
-        dietary_tags: info?.dietary_tags || [],
-        images,
-        confidence: 0.9,
-      } as DishResult;
-    })
-  );
-
-  const dishes: DishResult[] = results.map((r) =>
-    r.status === "fulfilled" ? r.value : {
-      id: `${scanId}-${Math.random().toString(36).slice(2, 8)}`,
-      name: "Unknown Dish",
-      description: "",
-      price: undefined,
-      category: "other",
-      origin: "",
-      dietary_tags: [],
-      images: [],
-      confidence: 0.5,
     }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(ENRICHMENT_CONCURRENCY, items.length) }, () => worker())
   );
+
+  const dishes = results;
 
   let summary = "";
   try {

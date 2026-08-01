@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { runLocalOCR } from "@/lib/ocr/local";
 
 export interface LocalOCRItem {
   id: string;
@@ -69,9 +68,12 @@ export function useScan() {
               if (typeof data?.message === "string") {
                 setStatusMessage(data.message);
               }
-            } else if (eventType === "complete") {
+             } else if (eventType === "complete") {
               const id = data?.scan_id ?? data?.scan?.id ?? data?.id ?? null;
+              const items = data?.items ?? [];
               setResultId(id);
+              setLocalItems(items);
+              setLocalMenuName(data?.menu_name || "");
               setStatus("complete");
               setStatusMessage(null);
             } else if (eventType === "error") {
@@ -107,24 +109,71 @@ export function useScan() {
 
     try {
       setProgress(30);
-      const result = await runLocalOCR(file);
+      const form = new FormData();
+      form.append("image", file);
 
-      setProgress(70);
-      setLocalMenuName("Local Scan Result");
-      setLocalItems(
-        result.items.map((item, index) => ({
-          ...item,
-          id: `local-${Date.now()}-${index}`,
-          image_url: "",
-          confidence: 0.75,
-        }))
-      );
+      const res = await fetch("/api/scan/new?mode=offline", { method: "POST", body: form });
+      if (!res.ok) {
+        const text = await res.text();
+        const sseMatch = text.match(/data:\s*(\{[\s\S]*?\})/);
+        if (sseMatch) {
+          try {
+            const parsed = JSON.parse(sseMatch[1]);
+            throw new Error(parsed.message || `HTTP ${res.status}`);
+          } catch (e) {
+            if (e instanceof Error) throw e;
+          }
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
 
-      setProgress(100);
-      setStatus("complete");
+      setProgress(50);
+      setStatus("scanning");
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      const { createParser } = await import("eventsource-parser");
+      const parser = createParser({
+        onEvent: (event) => {
+          try {
+            const eventType = event.event;
+            const data = JSON.parse(event.data || "{}");
+
+            if (eventType === "status") {
+              setProgress(Number(data?.progress ?? 0));
+              if (typeof data?.message === "string") {
+                setStatusMessage(data.message);
+              }
+             } else if (eventType === "complete") {
+              const id = data?.scan_id ?? data?.scan?.id ?? data?.id ?? null;
+              const items = data?.items ?? [];
+              setResultId(id);
+              setLocalItems(items);
+              setLocalMenuName(data?.menu_name || "Local Scan Result");
+              setStatus("complete");
+              setStatusMessage(null);
+            } else if (eventType === "error") {
+              setError(typeof data?.message === "string" ? data.message : "Scan failed");
+              setStatus("error");
+              setStatusMessage(null);
+            }
+          } catch {
+            // ignore malformed events
+          }
+        },
+      });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.feed(decoder.decode(value, { stream: true }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Local OCR failed");
       setStatus("error");
+      setStatusMessage(null);
     }
   }, []);
 

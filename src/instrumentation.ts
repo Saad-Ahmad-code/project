@@ -8,4 +8,12 @@ export async function register() {
   const { connectToDatabase } = await require('./lib/mongodb');
   await connectToDatabase();
   console.log('MenuLens: Local storage ready (no MongoDB)');
+
+  // Resume background enrichment: the worker re-claims jobs a previous run
+  // left queued/processing and processes them with bounded concurrency.
+  // Skipped during `next build` — the worker only belongs in a live server.
+  if (process.env.NEXT_PHASE !== 'phase-production-build') {
+    const { startWorker } = await require('./lib/agent/queue');
+    startWorker();
+  }
 }

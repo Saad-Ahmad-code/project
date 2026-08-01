@@ -110,6 +110,66 @@ export function getQueueStats() {
   }
 }
 
+// ── Background worker ──
+//
+// Booted once from src/instrumentation.ts (server start) and ensured
+// idempotently by enqueueAndProcessInBackground. Picks up queued jobs with
+// bounded concurrency and re-claims jobs a previous process left
+// 'processing' — in-flight work dies with the process, so those claims are
+// stale by definition.
+
+const WORKER_POLL_MS = 5000;
+const WORKER_MAX_CONCURRENT = 3;
+
+let workerStarted = false;
+let workerCycleRunning = false;
+let activeJobs = 0;
+
+export function startWorker(): void {
+  if (workerStarted) return;
+  workerStarted = true;
+
+  // Re-claim stale claims from a previous server process (crash/restart).
+  try {
+    const jobs = db.findAll<AgentJob>('agent_log');
+    const stale = jobs.filter(j => j.status === 'processing');
+    for (const job of stale) {
+      updateJob(job.id, { status: 'queued', error: 'Re-queued: server restarted mid-job' });
+    }
+    if (stale.length > 0) {
+      logger.info(`[AgentQueue] Re-queued ${stale.length} stale processing job(s) after restart`);
+    }
+  } catch (err: any) {
+    logger.warn(`[AgentQueue] Stale-job re-claim failed: ${err.message}`);
+  }
+
+  workerLoop();
+}
+
+function workerLoop(): void {
+  if (workerCycleRunning) return;
+  workerCycleRunning = true;
+  try {
+    while (activeJobs < WORKER_MAX_CONCURRENT) {
+      const job = getNextJob();
+      if (!job) break;
+      // Optimistic claim BEFORE dispatch, so a concurrent cycle or the admin
+      // endpoint can't pick the same job (getNextJob only sees 'queued').
+      updateJob(job.id, { status: 'processing', started_at: new Date().toISOString() });
+      activeJobs += 1;
+      processJob(job)
+        .catch((err: Error) => logger.error(`[AgentQueue] Worker job ${job.id} crashed: ${err.message}`))
+        .finally(() => { activeJobs -= 1; });
+    }
+  } finally {
+    workerCycleRunning = false;
+  }
+  if (workerStarted) {
+    const timer = setTimeout(workerLoop, WORKER_POLL_MS);
+    timer.unref?.();
+  }
+}
+
 // ── Process a single job (called by agent worker) ──
 
 export async function processJob(job: AgentJob): Promise<boolean> {
@@ -137,8 +197,11 @@ export async function processJob(job: AgentJob): Promise<boolean> {
       category: d.category || 'other',
     }));
 
-    // Run agent enrichment
-    const agentResult = await runAgent(menuItems, job.scan_id);
+    // Run agent enrichment (bounded pool inside runAgent — ≤3 dishes at a
+    // time — with per-dish progress reported here).
+    const agentResult = await runAgent(menuItems, job.scan_id, (done, total, dish) => {
+      logger.info(`[AgentQueue] Job ${job.id}: enriched ${done}/${total} — ${dish}`);
+    });
 
     // Update dishes with enriched data
     for (const enriched of agentResult.dishes) {
@@ -207,12 +270,9 @@ export async function enqueueAndProcessInBackground(
   scanId: string,
   items: any[]
 ): Promise<void> {
-  // Create job
-  const job = createJob(scanId, items.length);
-
-  // Process in the background (fire and forget)
-  // This runs after the HTTP response has been sent
-  processJob(job).catch(err => {
-    logger.error(`[AgentQueue] Background processing failed: ${err.message}`);
-  });
+  // Create the job; the background worker picks it up (startWorker is
+  // idempotent and booted from instrumentation.ts at server start, so jobs
+  // also survive restarts — leftover 'queued'/'processing' jobs are resumed).
+  createJob(scanId, items.length);
+  startWorker();
 }

@@ -81,11 +81,18 @@ export async function POST(request: NextRequest) {
         try {
           send('status', { status: 'uploading', progress: 5, message: 'Image received' });
 
-          // ── Step 1: Run OCR pipeline ──
-          send('status', { status: 'ocr_started', progress: 10, message: 'Starting OCR analysis...' });
+           // ── Step 1: Run OCR pipeline ──
+           send('status', { status: 'ocr_started', progress: 10, message: 'Starting OCR analysis…' });
 
-          const { runOCRPipeline } = require('@/lib/ocr/engine');
-          const ocrResult = await runOCRPipeline(arrayBuffer, send);
+           const mode = request.nextUrl.searchParams.get('mode');
+           let ocrResult;
+           if (mode === 'offline') {
+             const { runOfflineOCRPipeline } = require('@/lib/ocr/local');
+             ocrResult = await runOfflineOCRPipeline(arrayBuffer, send);
+           } else {
+             const { runOCRPipeline } = require('@/lib/ocr/engine');
+             ocrResult = await runOCRPipeline(arrayBuffer, send);
+           }
 
           if (!ocrResult.items || ocrResult.items.length === 0) {
             send('error', { message: 'Could not identify any dishes from this image. Try a clearer photo.' });
