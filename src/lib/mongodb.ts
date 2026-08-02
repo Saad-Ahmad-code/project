@@ -83,7 +83,20 @@ class LocalCollection {
     return { acknowledged: true, insertedId: record._id };
   }
 
-  insertMany(docs: any[]) { return docs.map(d => this.insertOne(d)); }
+  insertMany(docs: any[]) {
+    if (!docs || docs.length === 0) return [];
+    const data = this._read();
+    const now = new Date().toISOString();
+    const records = docs.map(doc => ({
+      _id: doc._id || this._id(),
+      ...doc,
+      created_at: doc.created_at || now,
+      updated_at: now,
+    }));
+    data.push(...records);
+    this._write(data);
+    return records.map(r => ({ acknowledged: true, insertedId: r._id }));
+  }
 
   updateOne(query: any, update: any) {
     const data = this._read();
@@ -161,7 +174,7 @@ export function db(name: string) {
 }
 
 export async function connectToDatabase() {
-  ['users', 'scans', 'dishes', 'cache', 'rate_limits', 'agent_log'].forEach(name => db(name));
+  ['users', 'scans', 'dishes', 'cache', 'agent_log'].forEach(name => db(name));
   return { db };
 }
 

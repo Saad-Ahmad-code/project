@@ -9,12 +9,15 @@
  *   Returns: { name, calories, protein, fat, carbs, fiber, sugars, serving_size, image_url, source }
  */
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 const OFF_SEARCH_URL = 'https://world.openfoodfacts.org/cgi/search.pl';
 const CACHE_TTL = 3600_000; // 1 hour
 const cache = new Map<string, { data: NutritionResult[]; ts: number }>();
+
+const USER_AGENT = 'MenuLens/1.0';
 
 export interface NutritionResult {
   name: string;
@@ -102,10 +105,23 @@ function getCached(key: string): NutritionResult[] | null {
 
 function setCache(key: string, data: NutritionResult[]) {
   if (cache.size >= 200) {
-    const first = cache.keys().next().value;
-    if (first) cache.delete(first);
+    const now = Date.now();
+    for (const [k, v] of cache) {
+      if (now - v.ts >= CACHE_TTL) cache.delete(k);
+    }
+    if (cache.size >= 200) {
+      const first = cache.keys().next().value;
+      if (first) cache.delete(first);
+    }
   }
   cache.set(key, { data, ts: Date.now() });
+}
+
+function cleanupExpiredCache(): void {
+  const now = Date.now();
+  for (const [k, v] of cache) {
+    if (now - v.ts >= CACHE_TTL) cache.delete(k);
+  }
 }
 
 const USDA_SEARCH_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
@@ -169,6 +185,11 @@ function stripFoodDescription(name: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!checkRateLimit(getClientIp(request))) {
+      return NextResponse.json({ results: [], error: 'Too many requests. Wait a minute and try again.' }, { status: 429 });
+    }
+
+    cleanupExpiredCache();
     const body = await request.json();
     const dishName = (body.dish_name || '').trim();
     const barcode = (body.barcode || '').trim();
@@ -177,15 +198,15 @@ export async function POST(request: NextRequest) {
     if (barcode) {
       const productUrl = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`;
       const res = await fetch(productUrl, {
-        headers: { 'User-Agent': 'MenuLens - meal scanning app - 70186904@student.uol.edu.pk' },
+        headers: { 'User-Agent': USER_AGENT },
         signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) {
-        return Response.json({ results: [], error: 'Product not found' });
+        return NextResponse.json({ results: [], error: 'Product not found' }, { status: 404 });
       }
       const data = await res.json();
       if (data.status !== 1 || !data.product) {
-        return Response.json({ results: [], error: 'Product not found' });
+        return NextResponse.json({ results: [], error: 'Product not found' }, { status: 404 });
       }
       const p = data.product;
       const n = p.nutriments || {};
@@ -203,18 +224,18 @@ export async function POST(request: NextRequest) {
         barcode: p.code || barcode,
       };
       result.nutri_score = calculateNutriScore(result);
-      return Response.json({ dish_name: result.name, results: [result], cached: false });
+      return NextResponse.json({ dish_name: result.name, results: [result], cached: false });
     }
 
     if (!dishName || dishName.length < 2) {
-      return Response.json({ error: 'dish_name is required', results: [] }, { status: 400 });
+      return NextResponse.json({ error: 'dish_name is required', results: [] }, { status: 400 });
     }
 
     // Check cache
     const cacheKey = dishName.toLowerCase().trim();
     const cached = getCached(cacheKey);
     if (cached) {
-      return Response.json({ dish_name: dishName, results: cached, cached: true });
+      return NextResponse.json({ dish_name: dishName, results: cached, cached: true });
     }
 
     // Build search query — try exact first, then broad
@@ -222,7 +243,7 @@ export async function POST(request: NextRequest) {
     const url = `${OFF_SEARCH_URL}?search_terms=${encodeURIComponent(searchTerm)}&json=1&page_size=5&fields=product_name,nutriments,serving_size,image_front_small_url,code,categories`;
 
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'MenuLens - meal scanning app - 70186904@student.uol.edu.pk' },
+      headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(10000),
     });
 
@@ -231,9 +252,9 @@ export async function POST(request: NextRequest) {
       const usdaResults = await searchUSDA(searchTerm);
       if (usdaResults.length > 0) {
         setCache(cacheKey, usdaResults);
-        return Response.json({ dish_name: dishName, results: usdaResults, cached: false, source: 'usda' });
+        return NextResponse.json({ dish_name: dishName, results: usdaResults, cached: false, source: 'usda' });
       }
-      return Response.json({ dish_name: dishName, results: [], error: 'Nutrition service unavailable' });
+      return NextResponse.json({ dish_name: dishName, results: [], error: 'Nutrition service unavailable' });
     }
 
     const data = await res.json();
@@ -264,14 +285,14 @@ export async function POST(request: NextRequest) {
       const usdaResults = await searchUSDA(searchTerm);
       if (usdaResults.length > 0) {
         setCache(cacheKey, usdaResults);
-        return Response.json({ dish_name: dishName, results: usdaResults, cached: false, source: 'usda' });
+        return NextResponse.json({ dish_name: dishName, results: usdaResults, cached: false, source: 'usda' });
       }
     }
 
     // Cache results
     setCache(cacheKey, results);
 
-    return Response.json({ dish_name: dishName, results, cached: false });
+    return NextResponse.json({ dish_name: dishName, results, cached: false });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[Nutrition] API error: ${message}`);

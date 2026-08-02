@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { RecipeResult } from "@/app/api/recipes/route";
+import { getCached, setCache } from "@/lib/fetch-cache";
 
 interface RecipePanelProps {
   dishName: string;
@@ -16,6 +17,12 @@ export function RecipePanel({ dishName }: RecipePanelProps) {
   const [open, setOpen] = useState(false);
 
   const fetchRecipe = async () => {
+    const cached = getCached<RecipeResult>(dishName);
+    if (cached) {
+      setRecipe(cached);
+      setOpen(true);
+      return;
+    }
     setLoading(true);
     setError(null);
     setRecipe(null);
@@ -25,7 +32,9 @@ export function RecipePanel({ dishName }: RecipePanelProps) {
       if (data.error) {
         setError(data.error);
       } else if (data.recipes && data.recipes.length > 0) {
-        setRecipe(data.recipes[0]);
+        const r = data.recipes[0];
+        setCache(dishName, r);
+        setRecipe(r);
         setOpen(true);
       } else {
         setError("No recipe found for this dish.");

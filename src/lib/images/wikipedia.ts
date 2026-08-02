@@ -1,9 +1,10 @@
 /** Wikipedia/Wikimedia Commons image provider. */
-export async function searchWikipedia(query: string): Promise<{ url: string; source: string }[]> {
-  try {
-    const res = await fetch(
-      `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(query)}&prop=pageimages&format=json&pithumbsize=500&origin=*`
-    );
+export async function searchWikipedia(query: string, signal?: AbortSignal): Promise<{ url: string; source: string }[]> {
+   try {
+     const res = await fetch(
+       `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(query)}&prop=pageimages&format=json&pithumbsize=500&origin=*`,
+       { signal }
+     );
     if (!res.ok) return [];
 
     const data = await res.json();

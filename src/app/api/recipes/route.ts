@@ -5,7 +5,9 @@
  * GET /api/recipes?dish=<name>
  */
 
+import { NextRequest, NextResponse } from "next/server";
 import { logger } from '@/lib/logger';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 const MEALDB_URL = 'https://www.themealdb.com/api/json/v1/1/search.php';
 
@@ -20,13 +22,17 @@ export interface RecipeResult {
   source?: string;
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    if (!checkRateLimit(getClientIp(request))) {
+      return NextResponse.json({ recipes: [], error: 'Too many requests. Wait a minute and try again.' }, { status: 429 });
+    }
+
     const url = new URL(request.url);
     const dish = url.searchParams.get('dish')?.trim();
 
-    if (!dish || dish.length < 2) {
-      return Response.json({ error: 'dish parameter is required' }, { status: 400 });
+    if (!dish || dish.length < 2 || dish.length > 200) {
+      return NextResponse.json({ error: 'dish parameter must be 2-200 characters' }, { status: 400 });
     }
 
     const res = await fetch(
@@ -35,14 +41,14 @@ export async function GET(request: Request) {
     );
 
     if (!res.ok) {
-      return Response.json({ recipes: [], error: 'Recipe service unavailable' });
+      return NextResponse.json({ recipes: [], error: 'Recipe service unavailable' });
     }
 
     const data = await res.json();
     const meals = data.meals || [];
 
     if (meals.length === 0) {
-      return Response.json({ recipes: [] });
+      return NextResponse.json({ recipes: [] });
     }
 
     const recipes: RecipeResult[] = meals.slice(0, 3).map((meal: any) => {
@@ -67,10 +73,10 @@ export async function GET(request: Request) {
       };
     });
 
-    return Response.json({ recipes });
+    return NextResponse.json({ recipes });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[Recipes] API error: ${message}`);
-    return Response.json({ error: message, recipes: [] }, { status: 500 });
+    return NextResponse.json({ error: message, recipes: [] }, { status: 500 });
   }
 }

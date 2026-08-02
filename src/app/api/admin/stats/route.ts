@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/options";
+
+async function requireAdmin(): Promise<boolean> {
+  try {
+    const session = await getServerSession(authOptions);
+    return !!session && (session.user as { isAdmin?: boolean }).isAdmin === true;
+  } catch {
+    return false;
+  }
+}
 
 export async function GET() {
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { db } = await import("@/lib/storage");
 

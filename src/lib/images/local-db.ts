@@ -12,12 +12,16 @@ const LOCAL_DB: Record<string, string[]> = {
   tea: ["https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=400"],
 };
 
-export async function searchLocalDB(query: string): Promise<{ url: string; source: string }[]> {
-  const lower = query.toLowerCase();
-  for (const [key, urls] of Object.entries(LOCAL_DB)) {
-    if (lower.includes(key)) {
-      return urls.map((url) => ({ url, source: "local" }));
-    }
-  }
-  return [];
-}
+export function searchLocalDB(query: string): Promise<{ url: string; source: string }[]> {
+   return Promise.resolve(_lookup(query));
+ }
+
+function _lookup(query: string): { url: string; source: string }[] {
+   const lower = query.toLowerCase();
+   for (const [key, urls] of Object.entries(LOCAL_DB)) {
+     if (lower.includes(key)) {
+       return urls.map((url) => ({ url, source: "local" }));
+     }
+   }
+   return [];
+ }

@@ -1,9 +1,10 @@
 /** TheMealDB image provider. */
-export async function searchMealDB(query: string): Promise<{ url: string; source: string }[]> {
-  try {
-    const res = await fetch(
-      `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(query)}`
-    );
+export async function searchMealDB(query: string, signal?: AbortSignal): Promise<{ url: string; source: string }[]> {
+   try {
+     const res = await fetch(
+       `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(query)}`,
+       { signal }
+     );
     if (!res.ok) return [];
 
     const data = await res.json();

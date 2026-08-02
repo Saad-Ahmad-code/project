@@ -15,11 +15,10 @@ import { authOptions } from '@/lib/auth/options';
 import { getQueueStats, getNextJob, processJob, updateJob } from '@/lib/agent/queue';
 import { checkDatabaseConnection } from '@/lib/diagnostics';
 
-// Only admin users can access this
 async function requireAdmin(): Promise<boolean> {
   try {
     const session = await getServerSession(authOptions);
-    return !!session;
+    return !!session && (session.user as { isAdmin?: boolean }).isAdmin === true;
   } catch {
     return false;
   }

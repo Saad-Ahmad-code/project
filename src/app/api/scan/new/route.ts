@@ -14,33 +14,14 @@ import { authOptions } from '@/lib/auth/options';
 import { db, storage } from '@/lib/storage';
 import { db as mongodb } from '@/lib/mongodb';
 import { enqueueAndProcessInBackground } from '@/lib/agent/queue';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import type { MenuItem } from '@/types/menu';
 import type { OCRItem } from '@/lib/ocr/engine';
 
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW = 60 * 1000;
 
-// In-memory rate limit store (no MongoDB dependency)
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
-
-function getClientIp(request: NextRequest): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    'unknown'
-  );
-}
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitStore.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return true;
-  }
-  entry.count += 1;
-  return entry.count <= RATE_LIMIT_MAX;
-}
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function sseEncode(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -68,15 +49,30 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (imageFile.size > MAX_IMAGE_SIZE) {
+      return new Response(sseEncode('error', { message: 'Image too large. Maximum size is 10MB.' }), {
+        status: 413,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    }
+
     const arrayBuffer = await imageFile.arrayBuffer();
     const userId = ((session?.user as Record<string, unknown>)?.id as string) || 'anonymous';
 
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        const send = (event: string, data: unknown) => {
-          try { controller.enqueue(encoder.encode(sseEncode(event, data))); } catch {}
+        // Stop streaming (and let the pipeline unwind) when the client
+        // disconnects or aborts — previously the route kept enqueueing into a
+        // closed controller and even persisted the scan after the user saw an error.
+        const onAbort = () => {
+          try { controller.close(); } catch { /* already closed */ }
         };
+        request.signal?.addEventListener('abort', onAbort, { once: true });
+
+const send = (event: string, data: unknown) => {
+           try { controller.enqueue(encoder.encode(sseEncode(event, data))); } catch (e) { logger.warn(`[Scan] SSE send failed: ${e}`); }
+         };
 
         try {
           send('status', { status: 'uploading', progress: 5, message: 'Image received' });
@@ -109,33 +105,37 @@ export async function POST(request: NextRequest) {
           });
 
           // ── Step 2: Save to DB ──
-          let scanId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-
-          // Create items with stable IDs
-          const items: MenuItem[] = ocrResult.items.map((item: OCRItem, index: number) => ({
-            id: `${scanId}-${index}-${Date.now().toString(36)}`,
-            name: item.name,
-            description: item.description || '',
-            price: item.price,
-            category: item.category || 'other',
-            image_url: '',
-            confidence: item.confidence || 0.8,
-            scan_id: scanId,
-            created_at: new Date().toISOString(),
-          }));
+          let scanId = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+          let items: MenuItem[] = [];
 
           try {
             const result = await storage.saveScan(userId, '', ocrResult.raw_text, ocrResult.items);
             if (result?.insertedId) {
               scanId = result.insertedId;
             }
-            // Persist individual dish documents (GET /api/scan/[id] queries dishes collection)
-            for (const dish of items) {
-              dish.scan_id = scanId;
-              mongodb('dishes').insertOne(dish);
-            }
-          } catch {
-            logger.warn('Failed to persist scan, continuing without DB');
+
+            // Items keep a stable `id` (used by the client and the SSE payload);
+            // ids derive from the FINAL scan id so they can't drift from the scan.
+            items = ocrResult.items.map((item: OCRItem, index: number) => ({
+              id: `${scanId}-${index}-${Date.now().toString(36)}`,
+              name: item.name,
+              description: item.description || '',
+              price: item.price,
+              category: item.category || 'other',
+              image_url: '',
+              confidence: item.confidence || 0.8,
+              scan_id: scanId,
+              created_at: new Date().toISOString(),
+            }));
+
+            // Persist dish docs in ONE batched write (previously N full-file
+            // rewrites via insertOne). Stored docs carry `_id` ONLY per the
+            // storage convention (AGENTS.md rule 5) — `{ id }` queries work via
+            // the mongodb._match() alias; /api/scan/[id] normalizes _id → id.
+            const dishDocs = items.map(({ id, ...rest }) => ({ _id: id, ...rest }));
+            mongodb('dishes').insertMany(dishDocs);
+          } catch (err: any) {
+            logger.warn(`Failed to persist scan, continuing without DB: ${err.message}`);
           }
 
           send('status', {
@@ -179,10 +179,10 @@ export async function POST(request: NextRequest) {
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : 'Failed to process menu';
           logger.error({ message, error: String(error) });
-          try { send('error', { message }); } catch {}
-        } finally {
-          try { controller.close(); } catch {}
-        }
+          try { send('error', { message }); } catch (e) { logger.warn(`[Scan] SSE send failed: ${e}`); }
+} finally {
+           try { controller.close(); } catch (e) { logger.warn(`[Scan] Controller close failed: ${e}`); }
+         }
       },
     });
 

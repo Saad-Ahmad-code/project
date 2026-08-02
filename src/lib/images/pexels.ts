@@ -2,15 +2,15 @@
 import { FOOD_KEYWORDS } from "@/lib/images/keywords";
 import { logger } from "@/lib/logger";
 
-export async function searchPexels(query: string): Promise<{ url: string; source: string }[]> {
-  const apiKey = process.env.PEXELS_API_KEY;
-  if (!apiKey) return [];
+export async function searchPexels(query: string, signal?: AbortSignal): Promise<{ url: string; source: string }[]> {
+   const apiKey = process.env.PEXELS_API_KEY;
+   if (!apiKey) return [];
 
-  try {
-    const res = await fetch(
-      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query + " food")}&per_page=5`,
-      { headers: { Authorization: `${apiKey}` } }
-    );
+   try {
+     const res = await fetch(
+       `https://api.pexels.com/v1/search?query=${encodeURIComponent(query + " food")}&per_page=5`,
+       { headers: { Authorization: `${apiKey}` }, signal }
+     );
 
     if (!res.ok) {
       if (res.status === 429) {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { NutritionResult } from "@/app/api/nutrition/route";
+import { getCached, setCache } from "@/lib/fetch-cache";
 
 interface NutritionPanelProps {
   dishName: string;
@@ -16,6 +17,12 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
 
   const fetchNutrition = async () => {
     if (results) { setExpanded(!expanded); return; }
+    const cached = getCached<NutritionResult[]>(dishName);
+    if (cached) {
+      setResults(cached);
+      setExpanded(true);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -28,7 +35,9 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
       if (data.error) {
         setError(data.error);
       } else {
-        setResults(data.results || []);
+        const nutritionResults = data.results || [];
+        setCache(dishName, nutritionResults);
+        setResults(nutritionResults);
         setExpanded(true);
       }
     } catch (err: any) {
@@ -44,7 +53,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
         onClick={fetchNutrition}
         disabled={loading}
         className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border-none cursor-pointer text-white disabled:cursor-wait disabled:opacity-50 ${
-          loading ? "bg-muted" : "bg-emerald-700 hover:bg-emerald-600"
+          loading ? "bg-muted-foreground/30" : "bg-emerald-700 hover:bg-emerald-600"
         }`}
       >
         {loading ? "Looking up..." : expanded && results ? "Hide Nutrition" : "Nutrition"}

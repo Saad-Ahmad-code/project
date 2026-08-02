@@ -7,9 +7,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chatCompletions } from "@/lib/ai/client";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    if (!checkRateLimit(getClientIp(request))) {
+      return NextResponse.json({ error: "Too many requests. Wait a minute and try again." }, { status: 429 });
+    }
+
     const { dishes } = await request.json();
 
     if (!dishes || !Array.isArray(dishes) || dishes.length === 0) {

@@ -2,15 +2,15 @@
 import { FOOD_KEYWORDS } from "@/lib/images/keywords";
 import { logger } from "@/lib/logger";
 
-export async function searchUnsplash(query: string): Promise<{ url: string; source: string }[]> {
-  const apiKey = process.env.UNSPLASH_ACCESS_KEY;
-  if (!apiKey) return [];
+export async function searchUnsplash(query: string, signal?: AbortSignal): Promise<{ url: string; source: string }[]> {
+   const apiKey = process.env.UNSPLASH_ACCESS_KEY;
+   if (!apiKey) return [];
 
-  try {
-    const res = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + " food")}&per_page=5`,
-      { headers: { Authorization: `Client-ID ${apiKey}` } }
-    );
+   try {
+     const res = await fetch(
+       `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + " food")}&per_page=5`,
+       { headers: { Authorization: `Client-ID ${apiKey}` }, signal }
+     );
 
     if (!res.ok) {
       if (res.status === 403) {

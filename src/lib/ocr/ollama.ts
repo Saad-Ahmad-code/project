@@ -30,11 +30,11 @@ export interface OllamaRefineOptions {
 }
 
 export interface OllamaVisionResult {
-  data: { text: string; words: never[] };
-  wordCount: number;
-  alphaWordCount: number;
-  avgConf: number;
-}
+   data: { text: string; words: string[] };
+   wordCount: number;
+   alphaWordCount: number;
+   avgConf: number;
+ }
 
 const DEFAULT_URL = "http://localhost:11434";
 /** Local refine brain — benchmarked 2026-08: gemma4:e2b matches the cloud

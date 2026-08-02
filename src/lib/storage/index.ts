@@ -23,9 +23,11 @@ export const db = {
     const result = _db(collection).insertOne(doc);
     return { ...doc, id: result.insertedId } as T;
   },
-  update<T = any>(collection: string, id: string, updates: any): T | null {
-    _db(collection).updateOne({ id }, { $set: updates });
-    return _db(collection).findOne({ id }) as T | null;
+  update<T = any>(collection: string, id: string, updates: any): { matched: boolean; data: T | null } {
+    const result = _db(collection).updateOne({ id }, { $set: updates });
+    if (result.matchedCount === 0) return { matched: false, data: null };
+    const data = _db(collection).findOne({ id }) as T | null;
+    return { matched: true, data };
   },
   deleteOne(collection: string, query: any) {
     return _db(collection).deleteOne(query);

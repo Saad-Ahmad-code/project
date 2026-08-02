@@ -84,8 +84,8 @@ User uploads menu photo (src/app/scan)
 | `src/lib/images/` | Dish-image search: `index.ts` (orchestrator, scoring, timeout), `keywords.ts`, per-source files. |
 | `src/lib/auth/options.ts` | NextAuth config, local JSON user storage. |
 | `src/lib/diagnostics.ts`, `src/lib/error-handler.ts` | Health checks / auto-diagnostic error handler. |
+| `src/lib/rate-limit.ts` | Shared per-IP sliding-window rate limiter (`checkRateLimit`/`getClientIp`) — used by the scan endpoint and every AI-backed route. |
 | `src/scripts/menu_ocr.py` | Standalone Python OCR script (extracted from client.ts template literal). |
-| `src/scripts/easyocr_scan.py` | EasyOCR scan script (engine.ts layer 3). |
 | `src/scripts/rapidocr_scan.py` | RapidOCR scan script (PP-OCRv6 models on ONNX Runtime) — an extra candidate in `runLocalOCR`'s engine pool (local.ts). |
 | `src/app/api/…` | Route handlers (see API list below). |
 | `src/app/{scan,history,results,compare,admin,auth}` | Pages. |

@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chatCompletions } from "@/lib/ai/client";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 const SUPPORTED_LANGUAGES: Record<string, string> = {
   english: "English",
@@ -21,10 +22,22 @@ const SUPPORTED_LANGUAGES: Record<string, string> = {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!checkRateLimit(getClientIp(request))) {
+      return NextResponse.json({ error: "Too many requests. Wait a minute and try again." }, { status: 429 });
+    }
+
     const { text, target_language } = await request.json();
 
     if (!text || !target_language) {
       return NextResponse.json({ error: "Provide both 'text' and 'target_language'" }, { status: 400 });
+    }
+
+    if (typeof text !== "string" || text.length > 10000) {
+      return NextResponse.json({ error: "text must be a string under 10,000 characters" }, { status: 400 });
+    }
+
+    if (typeof target_language !== "string" || target_language.length > 50) {
+      return NextResponse.json({ error: "target_language must be a string under 50 characters" }, { status: 400 });
     }
 
     const langName = SUPPORTED_LANGUAGES[target_language.toLowerCase()];

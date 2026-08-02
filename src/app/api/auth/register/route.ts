@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
       email: email.toLowerCase(),
       password: hashed,
       name: name || email.split("@")[0],
+      isAdmin: false,
       created_at: new Date().toISOString(),
     });
 

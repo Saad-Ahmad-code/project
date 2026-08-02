@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -96,23 +96,24 @@ export default function ResultsPage() {
     );
   };
 
-  const filteredItems = dietPrefs.length === 0
-    ? items
-    : items.filter((item) => {
-        const tags = (item.dietary_tags || []).map((t) => t.toLowerCase());
-        const name = item.name.toLowerCase();
-        const desc = (item.description || "").toLowerCase();
-        const combined = `${name} ${desc} ${tags.join(" ")}`;
-        for (const pref of dietPrefs) {
-          if (pref === "vegetarian" && (combined.includes("meat") || combined.includes("chicken") || combined.includes("beef") || combined.includes("fish") || combined.includes("pork"))) return false;
-          if (pref === "vegan" && (combined.includes("dairy") || combined.includes("cheese") || combined.includes("cream") || combined.includes("milk") || combined.includes("egg") || combined.includes("meat") || combined.includes("honey"))) return false;
-          if (pref === "gluten-free" && (combined.includes("bread") || combined.includes("pasta") || combined.includes("flour") || combined.includes("wheat") || combined.includes("naan") || combined.includes("bun"))) return false;
-          if (pref === "halal" && (combined.includes("pork") || combined.includes("alcohol") || combined.includes("wine"))) return false;
-          if (pref === "low-carb" && (combined.includes("rice") || combined.includes("pasta") || combined.includes("bread") || combined.includes("naan") || combined.includes("potato") || combined.includes("sugar"))) return false;
-          if (pref === "keto" && (combined.includes("rice") || combined.includes("pasta") || combined.includes("bread") || combined.includes("naan") || combined.includes("sugar") || combined.includes("potato") || combined.includes("sweet"))) return false;
-        }
-        return true;
-      });
+  const filteredItems = useMemo(() => {
+    if (dietPrefs.length === 0) return items;
+    return items.filter((item) => {
+      const tags = (item.dietary_tags || []).map((t) => t.toLowerCase());
+      const name = item.name.toLowerCase();
+      const desc = (item.description || "").toLowerCase();
+      const combined = `${name} ${desc} ${tags.join(" ")}`;
+      for (const pref of dietPrefs) {
+        if (pref === "vegetarian" && (combined.includes("meat") || combined.includes("chicken") || combined.includes("beef") || combined.includes("fish") || combined.includes("pork"))) return false;
+        if (pref === "vegan" && (combined.includes("dairy") || combined.includes("cheese") || combined.includes("cream") || combined.includes("milk") || combined.includes("egg") || combined.includes("meat") || combined.includes("honey"))) return false;
+        if (pref === "gluten-free" && (combined.includes("bread") || combined.includes("pasta") || combined.includes("flour") || combined.includes("wheat") || combined.includes("naan") || combined.includes("bun"))) return false;
+        if (pref === "halal" && (combined.includes("pork") || combined.includes("alcohol") || combined.includes("wine"))) return false;
+        if (pref === "low-carb" && (combined.includes("rice") || combined.includes("pasta") || combined.includes("bread") || combined.includes("naan") || combined.includes("potato") || combined.includes("sugar"))) return false;
+        if (pref === "keto" && (combined.includes("rice") || combined.includes("pasta") || combined.includes("bread") || combined.includes("naan") || combined.includes("sugar") || combined.includes("potato") || combined.includes("sweet"))) return false;
+      }
+      return true;
+    });
+  }, [items, dietPrefs]);
 
   if (loading) return (
     <main className="max-w-3xl mx-auto p-8 min-h-screen">

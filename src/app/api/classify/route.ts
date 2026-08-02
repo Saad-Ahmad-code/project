@@ -13,6 +13,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { logger } from '@/lib/logger';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 const PYTHON = path.resolve(process.cwd(), '.venv/Scripts/python');
 const SCRIPT = path.resolve(process.cwd(), 'src/scripts/food_classifier.py');
@@ -20,6 +21,10 @@ const TMP_DIR = path.resolve(process.cwd(), '.tmp');
 
 export async function POST(request: NextRequest) {
   try {
+    if (!checkRateLimit(getClientIp(request))) {
+      return Response.json({ error: 'Too many requests. Wait a minute and try again.', dishes: [] }, { status: 429 });
+    }
+
     const formData = await request.formData();
     const file = formData.get('image') as File | null;
 

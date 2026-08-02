@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 
 interface DishComparison {
   name: string;
-  price: number;
-  scan_id: string;
+  price1: number;
+  price2: number;
+  scan_id1: string;
+  scan_id2: string;
 }
 
 interface ComparisonData {
@@ -77,11 +79,17 @@ function CompareForm() {
             <div className="divide-y divide-border">
               {data.dishes.map((d, i) => (
                 <div key={i} className="flex justify-between items-center py-3">
-                  <Link href={`/results/${d.scan_id}`} className="text-sm hover:text-primary transition-colors">
+                  <Link href={`/results/${d.scan_id1 || d.scan_id2}`} className="text-sm hover:text-primary transition-colors">
                     {d.name}
                   </Link>
                   <span className="text-accent font-medium text-sm">
-                    {d.price !== undefined && d.price !== null ? `$${d.price.toFixed(2)}` : "-"}
+                    {d.price1 !== undefined && d.price1 !== null && d.price2 !== undefined && d.price2 !== null
+                      ? `$${d.price1.toFixed(2)} / $${d.price2.toFixed(2)}`
+                      : d.price1 !== undefined && d.price1 !== null
+                      ? `$${d.price1.toFixed(2)}`
+                      : d.price2 !== undefined && d.price2 !== null
+                      ? `$${d.price2.toFixed(2)}`
+                      : "-"}
                   </span>
                 </div>
               ))}

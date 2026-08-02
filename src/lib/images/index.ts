@@ -59,29 +59,29 @@ function scoreImage(url: string, query: string): number {
   return Math.max(0, Math.min(100, score));
 }
 
-export async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number, context?: Record<string, unknown>): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const result = await Promise.race([
-      fn(),
-      new Promise<never>((_, reject) => {
-        controller.signal.addEventListener("abort", () => {
-          reject(new Error(`Timeout after ${timeoutMs}ms${context?.name ? ` for "${context.name}"` : ""}`));
-        });
-      }),
-    ]);
-    return result;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+export async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs: number, context?: Record<string, unknown>): Promise<T> {
+   const controller = new AbortController();
+   const timer = setTimeout(() => controller.abort(), timeoutMs);
+   try {
+     const result = await Promise.race([
+       fn(controller.signal),
+       new Promise<never>((_, reject) => {
+         controller.signal.addEventListener("abort", () => {
+           reject(new Error(`Timeout after ${timeoutMs}ms${context?.name ? ` for "${context.name}"` : ""}`));
+         });
+       }),
+     ]);
+     return result;
+   } finally {
+     clearTimeout(timer);
+   }
+ }
 
 interface ImageSource {
-  name: string;
-  weight: number;
-  search: (query: string) => Promise<{ url: string; source: string }[]>;
-}
+   name: string;
+   weight: number;
+   search: (query: string, signal?: AbortSignal) => Promise<{ url: string; source: string }[]>;
+ }
 
 const sources: ImageSource[] = [
   { name: "unsplash", weight: 35, search: searchUnsplash },
@@ -94,34 +94,40 @@ const sources: ImageSource[] = [
 ];
 
 export async function searchDishImages(dishName: string): Promise<ImageResult[]> {
-  const allResults: ImageResult[] = [];
+   const allResults: ImageResult[] = [];
 
-  for (const source of sources) {
-    try {
-      const results = await withTimeout(
-        () => source.search(dishName),
-        10000,
-        { name: `${source.name} search for "${dishName}"` }
-      );
+   const settled = await Promise.allSettled(
+     sources.map((source) =>
+       withTimeout(
+         (signal: AbortSignal) => source.search(dishName, signal),
+         10000,
+         { name: `${source.name} search for "${dishName}"` }
+       )
+     )
+   );
 
-      for (const r of results) {
-        if (isValidImageUrl(r.url) && isFoodImage(r.url, dishName)) {
-          allResults.push({
-            ...r,
-            score: scoreImage(r.url, dishName) + source.weight,
-          });
-        }
-      }
-    } catch (err) {
-      logger.warn(`[Images] ${source.name} failed for "${dishName}": ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
+   for (let i = 0; i < settled.length; i++) {
+     const r = settled[i];
+     if (r.status !== "fulfilled") {
+       logger.warn(`[Images] ${sources[i].name} failed for "${dishName}": timed out`);
+       continue;
+     }
+     const results = r.value;
+     for (const img of results) {
+       if (isValidImageUrl(img.url) && isFoodImage(img.url, dishName)) {
+         allResults.push({
+           ...img,
+           score: scoreImage(img.url, dishName) + sources[i].weight,
+         });
+       }
+     }
+   }
 
-  allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
+   allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-  if (allResults.length > 0 && (allResults[0].score || 0) < 30) {
-    logger.info(`[Images] Low quality results for "${dishName}" (best score: ${allResults[0].score})`);
-  }
+   if (allResults.length > 0 && (allResults[0].score || 0) < 30) {
+     logger.info(`[Images] Low quality results for "${dishName}" (best score: ${allResults[0].score})`);
+   }
 
-  return allResults.slice(0, 10);
-}
+   return allResults.slice(0, 10);
+ }

@@ -30,6 +30,7 @@ export const authOptions: NextAuthOptions = {
             id: user._id || user.id,
             email: user.email,
             name: user.name || user.email.split("@")[0],
+            isAdmin: user.isAdmin || false,
           };
         } catch {
           return null;

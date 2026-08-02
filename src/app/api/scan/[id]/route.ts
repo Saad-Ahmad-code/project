@@ -8,7 +8,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const database = await getDatabase();
     const scan = await database.collection("scans").findOne({ _id: id });
     const items = await database.collection("dishes").find({ scan_id: id }).toArray();
-    return NextResponse.json({ scan, items });
+    // Stored docs carry `_id` only (storage convention); the frontend (DishCard,
+    // keys) expects `id` — normalize here so both old and new scans work.
+    const normalizedItems = items.map((i: any) => ({ ...i, id: i._id || i.id }));
+    return NextResponse.json({ scan, items: normalizedItems });
   } catch {
     return NextResponse.json({ error: "Scan not found" }, { status: 404 });
   }

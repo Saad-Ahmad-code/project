@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -16,7 +16,7 @@ interface DishCardProps {
   ai_description?: string;
 }
 
-export function DishCard({ id, name, description, price, category, image_url, confidence, dietary_tags, ai_description }: DishCardProps) {
+export const DishCard = memo(function DishCard({ id, name, description, price, category, image_url, confidence, dietary_tags, ai_description }: DishCardProps) {
   const [imageError, setImageError] = useState(false);
 
   return (
@@ -49,4 +49,4 @@ export function DishCard({ id, name, description, price, category, image_url, co
       </div>
     </Card>
   );
-}
+});
