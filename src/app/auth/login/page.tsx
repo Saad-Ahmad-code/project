@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,10 @@ export default function LoginPage() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        router.push("/scan");
+        const session = await getSession();
+        const isAdmin =
+          (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
+        router.push(isAdmin ? "/admin" : "/scan");
       }
     } catch {
       setError("An unexpected error occurred");

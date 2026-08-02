@@ -65,7 +65,11 @@ export default function AdminPage() {
   const [statsError, setStatsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (session) {
+    // Only fetch stats when a logged-in ADMIN is viewing. Non-admins get a
+    // clean "admins only" screen below instead of the shell + HTTP 401 error
+    // the API would otherwise produce.
+    const isAdmin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
+    if (session && isAdmin) {
       setStatsError(null);
       fetch("/api/admin/stats")
         .then((r) => {
@@ -90,6 +94,17 @@ export default function AdminPage() {
       <main className="max-w-4xl mx-auto p-8">
         <h1 className="text-2xl font-bold mb-4">Admin Dashboard</h1>
         <p className="text-destructive">Unauthorized — please log in.</p>
+      </main>
+    );
+  }
+
+  if ((session?.user as { isAdmin?: boolean } | undefined)?.isAdmin !== true) {
+    return (
+      <main className="max-w-4xl mx-auto p-8">
+        <h1 className="text-2xl font-bold mb-4">Admin Dashboard</h1>
+        <p className="text-muted-foreground">
+          This area is for admins only.
+        </p>
       </main>
     );
   }

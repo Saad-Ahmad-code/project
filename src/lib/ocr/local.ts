@@ -352,7 +352,7 @@ function isFoodRelated(word: string): boolean {
     /^(teriyaki|szechuan|hunan|wasabi|ginger|lemongrass)$/.test(w) ||
     /^(bacon|sausage|ham|salami|chorizo|prosciutto)$/.test(w) ||
     /^(mushroom|onion|tomato|lettuce|spinach|avocado)$/.test(w) ||
-    /^(olive|capsicum|jalapeno|pickle|potato|bean|beans)$/.test(w) ||
+    /^(olive|capsicum|jalapeno|pickle|potato|pot|bean|beans)$/.test(w) ||
     /^(broccoli|cauliflower|zucchini|eggplant|asparagus)$/.test(w) ||
     /^(guacamole|cilantro|coriander|basil|oregano)$/.test(w) ||
     /^(mint|rosemary|thyme|sage|dill|parsley|chives)$/.test(w) ||
@@ -622,8 +622,13 @@ function isHeaderLike(text: string, hasPrice: boolean, isCentered: boolean, line
     return true;
   }
 
-  // Short centered text with capital first letter
-  if (isCentered && lineWords.length <= 4 && !/\d/.test(t) && /^[A-Z]/.test(text.trim())) return true;
+  // Short centered text with capital first letter. Venue titles ("The Golden
+  // Fork") are centered title-case and have NO food words — a centered line
+  // whose words ARE food-related is a dish (short no-price dishes like
+  // "Chicken Quesadilla" can land mid-band and look centered), same guard
+  // rule 620 uses for all-caps lines.
+  if (isCentered && lineWords.length <= 4 && !/\d/.test(t) && /^[A-Z]/.test(text.trim()) &&
+      !lineWords.some(w => isFoodRelated(w))) return true;
 
   return false;
 }
@@ -774,8 +779,17 @@ const DISH_PREFIX_WORDS =
   /^(extra|serves?|for|with|choice|add|plus|and|side|to|feeds?|serving|one|two|three|four|half|full|large|small|medium|regular|double|kids?|choose|ask|please)\b/i;
 
 export function splitMergedDishLine(name: string, trailingPrice?: number): LocalOCRItem[] | null {
+  // The second-half word class allows digits and currency symbols, not just
+  // letters: fused rows can carry FURTHER prices ("Dish One $10 Dish Two
+  // $12 Dish Three") and digit-start names ("Dish One $10 2 Piece
+  // Chicken"). Both halves are re-checked by the guards below — and the
+  // iterative fallback (splitMergedItemsFallback) re-runs this on each
+  // output, so a second half that still embeds a price gets split further.
+  // Mid-price alternatives also accept the SPACE-CENTS form ("$18 50"):
+  // cleanDishName Stage 5f mangles embedded "$18.50" into "$18 50" before
+  // this fallback runs, and "$18" alone would leave a stray "50" behind.
   const m = name.match(
-    /^(.*?)\s+([$€£¥]\s*\d+(?:[.,]\d{1,2})?|\d+[.,]\d{1,2}|\d{2,3})\s+([A-Za-z][A-Za-z0-9&'-]*(\s+[A-Za-z][A-Za-z0-9&'-]*)*)$/
+    /^(.*?)\s+([$€£¥]\s*\d+(?:[.,]\d{1,2}|\s+\d{2})?|\d+[.,]\d{1,2}|\d+\s+\d{2}|\d{2,3})\s+([A-Za-z0-9$€£¥][A-Za-z0-9$€£¥&'-]*(\s+[A-Za-z0-9$€£¥][A-Za-z0-9$€£¥&'-]*)*)$/
   );
   if (!m) return null;
   const firstRaw = m[1].trim();
@@ -784,7 +798,10 @@ export function splitMergedDishLine(name: string, trailingPrice?: number): Local
 
   const first = cleanDishName(firstRaw);
   const second = cleanDishName(secondRaw);
-  const midPrice = normalizePrice(m[2]);
+  // Space-cents form ("$5 25"): cleanDishName Stage 5f turns embedded
+  // "$5.25" into "$5 25" — collapse it back before parsing, otherwise
+  // normalizePrice reads 525 (only 2-digit wholes survive its 1299 rescue).
+  const midPrice = normalizePrice(m[2].replace(/\s+(\d{2})$/, ".$1"));
   if (midPrice === null || midPrice < 1 || midPrice >= 2000) return null;
 
   const firstWord = first.split(/\s+/)[0] || "";
@@ -817,18 +834,38 @@ export function splitMergedDishLine(name: string, trailingPrice?: number): Local
 /**
  * Post-parse safety net: any item whose name still contains an embedded
  * price ("Smoked Brisket $18.50 Pulled Pork Sandwich", "ICE MILK 77
- * BEAN") is split into two dishes. No-op for every well-formed item.
+ * BEAN", "Dish One $10 Dish Two $12 Dish Three") is split into two or
+ * more dishes. No-op for every well-formed item.
+ *
+ * ITERATIVE: a fused row can carry several prices ("Dish One $10 Dish Two
+ * $12 Dish Three $14" — the parser strips the trailing $14, leaving "Dish
+ * One $10 Dish Two $12" + price 14). One pass only peels the FIRST dish;
+ * we re-run the splitter on each output until nothing splits anymore
+ * (bounded to 3 rounds — realistic fusion is 2-3 dishes per row).
  * Runs after the Ollama refine layer, which is the primary splitter.
  */
 export function splitMergedItemsFallback(items: LocalOCRItem[]): LocalOCRItem[] {
   const out: LocalOCRItem[] = [];
   for (const item of items) {
-    const split = item.name ? splitMergedDishLine(item.name, item.price) : null;
-    if (split) {
-      out.push(split[0], split[1]);
-    } else {
-      out.push(item);
+    let pending: LocalOCRItem[] = [item];
+    for (let depth = 0; depth < 3; depth++) {
+      const next: LocalOCRItem[] = [];
+      let splitThisRound = false;
+      for (const p of pending) {
+        const split = p.name ? splitMergedDishLine(p.name, p.price) : null;
+        if (split) {
+          // Preserve the original item's category/description on both halves —
+          // the splitter itself only returns { name, price }.
+          next.push({ ...p, ...split[0] }, { ...p, ...split[1] });
+          splitThisRound = true;
+        } else {
+          next.push(p);
+        }
+      }
+      pending = next;
+      if (!splitThisRound) break; // stable — no more embedded prices
     }
+    out.push(...pending);
   }
   return out;
 }
@@ -1318,6 +1355,54 @@ function sequentialParse(rawText: string): LocalOCRItem[] {
 //  LAYER 1: Positional parser (bounding box data)
 // ═══════════════════════════════════════════════════════════════════
 
+// A Y-row carrying 2+ standalone price tokens is usually TWO dishes fused
+// from a two-column layout ("Dish One $10  Dish Two $12" — the header-split
+// above only fires on header-like tokens, so dish rows reach here whole).
+// Re-segment the word array at the WIDEST internal gaps (a column gutter),
+// so detectColumns sees clean per-column rows instead of one full-width line.
+//
+// Deliberately conservative:
+//  - Size-variant rows ("Small $5 / Large $8") are ONE dish — never split.
+//  - A cut needs a wide gap AND a next word that isn't an add-on prefix
+//    ("Chicken $10 Add $2" is one dish; the price before "Add" is an add-on).
+//  - Every resulting segment must start with a letter — otherwise the cut
+//    was wrong and we bail, leaving the row for the iterative text splitter
+//    (splitMergedItemsFallback), which handles single-column fusion.
+function splitMultiPriceRow(words: WordPos[], imgWidth: number): WordPos[][] {
+  const priceIdx = words
+    .map((w, i) => (findPriceInWord(w.text) ? i : -1))
+    .filter((i) => i >= 0);
+  if (priceIdx.length < 2) return [words];
+
+  const text = words.map((w) => w.text).join(" ");
+  if (/(Small|Regular|Single|Large|Double|Medium|Kids?)\s+[$€£¥]?\s*\d/.test(text) && text.includes("/")) {
+    return [words]; // size-variant row — one dish
+  }
+
+  const cuts = new Set<number>();
+  for (let i = 0; i < priceIdx.length - 1; i++) {
+    const pi = priceIdx[i];
+    const nxt = words[pi + 1];
+    const gap = nxt ? nxt.x - (words[pi].x + words[pi].w) : -1;
+    if (gap > Math.max(imgWidth * 0.08, 60) && !DISH_PREFIX_WORDS.test(nxt?.text ?? "")) {
+      cuts.add(pi + 1);
+    }
+  }
+  if (cuts.size === 0) return [words];
+
+  const segments: WordPos[][] = [];
+  let start = 0;
+  for (let i = 0; i <= words.length; i++) {
+    if (i === words.length || cuts.has(i)) {
+      segments.push(words.slice(start, i));
+      start = i;
+    }
+  }
+  if (segments.length < 2) return [words];
+  if (!segments.every((s) => s.length > 0 && /[A-Za-z]/.test(s[0].text))) return [words];
+  return segments;
+}
+
 function groupIntoLines(words: WordPos[]): TextLine[] {
   if (words.length === 0) return [];
 
@@ -1367,58 +1452,74 @@ function groupIntoLines(words: WordPos[]): TextLine[] {
 
     for (const seg of segments) {
       if (seg.length === 0) continue;
-      const text = seg.map(w => w.text).join(" ").trim();
-      if (!text) continue;
+      // Multi-price row split (splitMultiPriceRow): a Y-row that fuses two
+      // columns' dishes ("Dish One $10  Dish Two $12") becomes per-column
+      // sub-lines BEFORE detectColumns — otherwise the full-width line lands
+      // in a single column and embeds the other dish into it.
+      const subSegments = splitMultiPriceRow(seg, imgWidth);
+      for (const seg of subSegments) {
+        if (seg.length === 0) continue;
+        const text = seg.map(w => w.text).join(" ").trim();
+        if (!text) continue;
 
-      const minX = Math.min(...seg.map(w => w.x));
-      const minY = Math.min(...seg.map(w => w.y));
-      const maxX = Math.max(...seg.map(w => w.x + w.w));
-      const maxY = Math.max(...seg.map(w => w.y + w.h));
+        const minX = Math.min(...seg.map(w => w.x));
+        const minY = Math.min(...seg.map(w => w.y));
+        const maxX = Math.max(...seg.map(w => w.x + w.w));
+        const maxY = Math.max(...seg.map(w => w.y + w.h));
 
-      // Price in last 1-2 words
-      let hasPrice = false;
-      let price: number | undefined;
-      let priceEndX = 0;
+        // Price in last 1-2 words
+        let hasPrice = false;
+        let price: number | undefined;
+        let priceEndX = 0;
 
-      for (let w = seg.length - 1; w >= Math.max(0, seg.length - 3); w--) {
-        const pr = findPriceInWord(seg[w].text);
-        if (pr) {
-          hasPrice = true;
-          price = pr.price;
-          priceEndX = seg[w].x + seg[w].w;
-          break;
+        for (let w = seg.length - 1; w >= Math.max(0, seg.length - 3); w--) {
+          const pr = findPriceInWord(seg[w].text);
+          if (pr) {
+            hasPrice = true;
+            price = pr.price;
+            priceEndX = seg[w].x + seg[w].w;
+            break;
+          }
         }
-      }
 
-      // Also try price at end of full text
-      if (!hasPrice) {
-        const pr = findPriceInText(text);
-        if (pr && pr.position === "trailing") {
-          hasPrice = true;
-          price = pr.price;
-          priceEndX = maxX;
+        // Also try price at end of full text
+        if (!hasPrice) {
+          const pr = findPriceInText(text);
+          if (pr && pr.position === "trailing") {
+            hasPrice = true;
+            price = pr.price;
+            priceEndX = maxX;
+          }
         }
-      }
 
-      const lineWords = text.split(/\s+/);
-      const midX = minX + (maxX - minX) / 2;
-      const isCentered = midX > imgWidth * 0.25 && midX < imgWidth * 0.75 && (maxX - minX) < imgWidth * 0.7;
-      const isAllCaps = text === text.toUpperCase() && /[A-Z]{4,}/.test(text);
+        const lineWords = text.split(/\s+/);
+        const midX = minX + (maxX - minX) / 2;
+        // Truly centered = roughly equal left/right margins. A short LEFT-ALIGNED
+        // line (a no-price dish like "Chicken Quesadilla" at x=64) can still land
+        // its midX inside the 25-75% band — mislabeling it centered promotes it to
+        // a section header (isHeaderLike's centered rule) and silently eats the
+        // dish. Asymmetry > 20% of the canvas means the line hugs one margin.
+        const leftMargin = minX;
+        const rightMargin = imgWidth - maxX;
+        const isCentered = midX > imgWidth * 0.25 && midX < imgWidth * 0.75 &&
+          (maxX - minX) < imgWidth * 0.7 && Math.abs(leftMargin - rightMargin) < imgWidth * 0.2;
+        const isAllCaps = text === text.toUpperCase() && /[A-Z]{4,}/.test(text);
 
-      lines.push({
-        text,
-        x: minX,
-        y: minY,
-        w: maxX - minX,
-        h: maxY - minY,
-        words: seg,
-        hasPrice,
-        price,
-        priceEndX,
-        isCentered,
-        isAllCaps,
-        isHeader: isHeaderLike(text, hasPrice, isCentered, lineWords),
-      });
+        lines.push({
+          text,
+          x: minX,
+          y: minY,
+          w: maxX - minX,
+          h: maxY - minY,
+          words: seg,
+          hasPrice,
+          price,
+          priceEndX,
+          isCentered,
+          isAllCaps,
+          isHeader: isHeaderLike(text, hasPrice, isCentered, lineWords),
+        });
+      } // end sub-segment loop (splitMultiPriceRow)
     }
   }
 
@@ -1491,6 +1592,16 @@ function parseColumn(column: Column): ParsedDish[] {
       continue;
     }
     if (isNoiseLine(line.text)) continue;
+
+    // A dish line with its OWN price cannot also absorb a pending (orphan)
+    // price from an earlier price-only line — otherwise the orphan leaks
+    // onto a LATER no-price dish ("$10 / Dish One $12 / Dish Two" → Dish
+    // Two wrongly @10). The pending price was either noise or belonged to a
+    // dish above; either way it is not this dish's. Priced headers clear it
+    // too (the isHeader branch below also resets it — additive here).
+    if (line.hasPrice) {
+      pendingPrice = undefined;
+    }
 
     // Category header detection
     if (line.isHeader) {
@@ -1790,8 +1901,10 @@ function nameTableEntry(nameText: string, category: string, layout: MenuLayout):
 function isDescriptionLine(text: string): boolean {
   const t = text.toLowerCase().trim();
 
-  // Starts with ingredient/prep words
-  if (/^(with|in|on|served|topped|drizzled|accompanied|comes|available|choice|side|and|plus|add)/i.test(t)) return true;
+  // Starts with ingredient/prep words — \b so "onion" isn't caught by "on"
+  // (a word-boundary bug that mislabeled dishes like Onion Rings as
+  // descriptions and blocked merged-row splitting).
+  if (/^(with|in|on|served|topped|drizzled|accompanied|comes|available|choice|side|and|plus|add)\b/i.test(t)) return true;
 
   // Allergen / dietary info
   if (/\b(gf|v|vg|df|contains|allergen|nut)\b/i.test(t)) return true;
@@ -2269,8 +2382,13 @@ export async function runLocalOCR(
 
   try {
     // ── Step 1: Read file into buffer ──
-    const arrayBuffer = await file.arrayBuffer();
-    inputBuffer = Buffer.from(arrayBuffer);
+    // Accept both File (browser uploads, harness) and Buffer (internal
+    // callers). A Buffer has no .arrayBuffer() in this Node runtime — passing
+    // one used to throw here and silently drop the whole sharp/RapidOCR
+    // pipeline into the low-quality single-Tesseract fallback.
+    inputBuffer = Buffer.isBuffer(file as unknown)
+      ? (file as unknown as Buffer)
+      : Buffer.from(await (file as unknown as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer());
 
     // ── Step 2: Try Sharp preprocessing (grayscale + normalize + sharpen) ──
     try {
@@ -2371,7 +2489,7 @@ export async function runLocalOCR(
       ]);
       resultData = getBestResult(results);
     }
-  } catch {
+  } catch (e) {
     // Ultimate fallback: single Tesseract pass with File
     const result = await Tesseract.recognize(file, "eng", {
       logger: () => {},

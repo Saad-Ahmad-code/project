@@ -12,8 +12,44 @@ interface DishInfo {
   images: { url: string; source: string }[];
 }
 
+// Dish research is deterministic per name — "Kare-kare" doesn't change between
+// scans. Caching successful results (7 days) means repeat customers / repeat
+// scans cost ZERO AI calls instead of one per dish. Negative results are
+// cached briefly (10 min) so a down provider chain isn't hammered per dish.
+const researchCache = new Map<string, { data: DishInfo | null; ts: number }>();
+const HIT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for successes
+const MISS_TTL_MS = 10 * 60 * 1000; // 10 min for failures
+const CACHE_MAX = 500;
+
+const cacheKey = (name: string) => name.trim().toLowerCase();
+
+function researchCacheGet(name: string): DishInfo | null | undefined {
+  const entry = researchCache.get(cacheKey(name));
+  if (!entry) return undefined;
+  const ttl = entry.data === null ? MISS_TTL_MS : HIT_TTL_MS;
+  if (Date.now() - entry.ts < ttl) return entry.data;
+  researchCache.delete(cacheKey(name));
+  return undefined;
+}
+
+function researchCacheSet(name: string, data: DishInfo | null): void {
+  if (researchCache.size >= CACHE_MAX) {
+    const first = researchCache.keys().next().value;
+    if (first) researchCache.delete(first);
+  }
+  researchCache.set(cacheKey(name), { data, ts: Date.now() });
+}
+
 export async function researchDish(dishName: string): Promise<DishInfo | null> {
   const MAX_RETRIES = 2;
+
+  const cached = researchCacheGet(dishName);
+  if (cached !== undefined) {
+    if (cached !== null) {
+      logger.info(`[DishResearch] Cache hit for "${dishName}"`);
+    }
+    return cached;
+  }
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
@@ -52,24 +88,31 @@ No markdown, no code blocks, just the raw JSON.`,
       try {
         const cleaned = content.replace(/```json\n?|\n?```/g, "").trim();
         const data = JSON.parse(cleaned);
-        return {
+        const info: DishInfo = {
           description: data.detailed_description || content.slice(0, 300),
           origin: extractOrigin(data),
           dietary_tags: extractDietaryTags(data),
           images: [],
         };
+        researchCacheSet(dishName, info);
+        return info;
       } catch {
-        return {
+        const info: DishInfo = {
           description: content.slice(0, 300),
           origin: "",
           dietary_tags: [],
           images: [],
         };
+        researchCacheSet(dishName, info);
+        return info;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn(`[DishResearch] Attempt ${attempt + 1} failed for "${dishName}": ${msg.slice(0, 100)}`);
-      if (attempt === MAX_RETRIES - 1) return null;
+      if (attempt === MAX_RETRIES - 1) {
+        researchCacheSet(dishName, null);
+        return null;
+      }
     }
   }
 

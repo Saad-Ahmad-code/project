@@ -29,6 +29,11 @@ export const db = {
     const data = _db(collection).findOne({ id }) as T | null;
     return { matched: true, data };
   },
+  /** Apply many per-doc updates with a single read/write — see LocalCollection.bulkUpdate. */
+  bulkUpdate<T = any>(collection: string, updates: { query: any; $set: any }[]): { matched: number } {
+    const result = _db(collection).bulkUpdate(updates);
+    return { matched: result.matchedCount };
+  },
   deleteOne(collection: string, query: any) {
     return _db(collection).deleteOne(query);
   }

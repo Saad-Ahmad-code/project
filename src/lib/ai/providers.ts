@@ -13,7 +13,7 @@ export interface AiProvider {
 
 export const providers: AiProvider[] = [
   { name: "openrouter-gemma4", baseURL: "https://openrouter.ai/api/v1", model: "google/gemma-4-26b-a4b-it:free", apiKeyEnv: "OPENROUTER_API_KEY", priority: 1 },
-  { name: "openrouter-llama", baseURL: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free", apiKeyEnv: "OPENROUTER_API_KEY", priority: 2 },
+  { name: "openrouter-ling", baseURL: "https://openrouter.ai/api/v1", model: "inclusionai/ling-3.0-flash:free", apiKeyEnv: "OPENROUTER_API_KEY", priority: 2 },
   { name: "openrouter-router", baseURL: "https://openrouter.ai/api/v1", model: "openrouter/free", apiKeyEnv: "OPENROUTER_API_KEY", priority: 3 },
   { name: "openrouter-nemotron-nano", baseURL: "https://openrouter.ai/api/v1", model: "nvidia/nemotron-3-nano-30b-a3b:free", apiKeyEnv: "OPENROUTER_API_KEY", priority: 4 },
   { name: "openrouter-nemotron-super", baseURL: "https://openrouter.ai/api/v1", model: "nvidia/nemotron-3-super-120b-a12b:free", apiKeyEnv: "OPENROUTER_API_KEY", priority: 5 },

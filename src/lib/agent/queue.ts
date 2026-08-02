@@ -203,19 +203,25 @@ export async function processJob(job: AgentJob): Promise<boolean> {
       logger.info(`[AgentQueue] Job ${job.id}: enriched ${done}/${total} — ${dish}`);
     });
 
-    // Update dishes with enriched data
-    for (const enriched of agentResult.dishes) {
-      try {
-        db.update('dishes', enriched.id, {
-          ai_description: enriched.ai_description,
-          origin: enriched.origin,
-          dietary_tags: enriched.dietary_tags,
-          image_url: enriched.images[0] || '',
-          confidence: enriched.confidence,
-        });
-      } catch {
-        // Skip individual dish update failures
-      }
+    // Update dishes with enriched data — ONE batched write instead of N
+    // per-dish full-file rewrites (bulkUpdate = single read + single write).
+    try {
+      const updates = agentResult.dishes
+        .filter((enriched: any) => enriched.id)
+        .map((enriched: any) => ({
+          query: { id: enriched.id },
+          $set: {
+            ai_description: enriched.ai_description,
+            origin: enriched.origin,
+            dietary_tags: enriched.dietary_tags,
+            image_url: enriched.images[0] || '',
+            confidence: enriched.confidence,
+          },
+        }));
+      db.bulkUpdate('dishes', updates);
+    } catch (err: any) {
+      // A failed write-back shouldn't fail the job — enrichment already ran.
+      logger.warn(`[AgentQueue] Dish write-back failed: ${err.message}`);
     }
 
     // Update scan with summary

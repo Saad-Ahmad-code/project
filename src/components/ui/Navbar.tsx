@@ -28,6 +28,11 @@ export function Navbar() {
 
         {status === "authenticated" && (
           <>
+            {(session?.user as { isAdmin?: boolean } | undefined)?.isAdmin && (
+              <Link href="/admin" className="text-sm text-muted-foreground hover:text-white transition-colors no-underline">
+                Admin
+              </Link>
+            )}
             <span className="text-sm text-muted-foreground hidden sm:inline">{session?.user?.email}</span>
             <Button
               variant="ghost"

@@ -142,7 +142,18 @@ User uploads menu photo (src/app/scan)
   OR short ALL-CAPS no-price line with no food word ("SMOKER", "SPECIALS") — this
   rule was added because single-word all-caps section headers silently lost their
   whole section's category, and the venue gate (STEEL & OAK + "Est. 2011" subtitle)
-  only applies to lines that are already `isHeader`.
+  only applies to lines that are already `isHeader`. The short-CENTERED title-case
+  rule (venue titles like "The Golden Fork") carries the SAME food-word guard —
+  a centered no-price line whose words are food-related ("Chicken Quesadilla",
+  which can land mid-band because `imgWidth` = max word right-edge, not canvas
+  width) is a DISH, and treating it as a header silently ate the dish.
+  `isCentered` itself requires roughly symmetric left/right margins (asymmetry
+  >20% of `imgWidth` = left-aligned), so short left-aligned lines aren't
+  mislabeled centered.
+- **Input handling (`runLocalOCR`):** accepts both `File` (uploads, harness) and
+  `Buffer` (internal callers). A Buffer has no `.arrayBuffer()` in this Node
+  runtime — passing one used to throw and silently fall to the low-quality
+  single-Tesseract fallback.
 - **Column detection (`detectColumns`):** splits on a wide vertical gap; rejects a side
   that is mostly price-only lines (degraded layouts push price boxes to their own
   column) and merges lines whose x-gap is small (venue title bridging two columns).
@@ -152,7 +163,20 @@ User uploads menu photo (src/app/scan)
   handled by pending-price capture + the 2-line and 3-line name/description/price
   patterns in `parseColumn`. A title-case line directly after a price is a priced
   dish even when it's a category keyword (Cheesecake, Tiramisu) — only all-caps
-  lines keep header status there.
+  lines keep header status there. A dish line with its OWN price clears any pending
+  orphan price, so a stray price-only line can't leak onto a later no-price dish.
+- **Merged-row splitting:** OCR fuses adjacent rows / two-column dishes at the same
+  Y into one line ("Buffalo Wings $10.50 Mozzarella Sticks $4.00"). Three layers
+  handle it: (1) `splitMultiPriceRow` in `groupIntoLines` re-segments a Y-row with
+  2+ standalone price tokens at the column gutter (wide gap, add-on words and
+  size-variant "/" rows are protected) BEFORE column detection; (2) the primary
+  Ollama refine splitter; (3) `splitMergedItemsFallback` — an ITERATIVE deterministic
+  splitter that re-runs `splitMergedDishLine` on every output until no embedded
+  price remains (≤3 rounds). The mid-price regex accepts the space-cents form
+  ("$18 50") because `cleanDishName` Stage 5f mangles embedded "$18.50" that way.
+  False splits are blocked by requiring a mid price (nothing after a bare trailing
+  number), `DISH_PREFIX_WORDS` (with/extra/add/serves), food-word/all-caps halves,
+  and the size-variant guard.
 - **Validation gates:** `/[a-zA-Z]{3,}/` + `hasSufficientRealWords` (≥60% words with 3+
   letters; multi-word names need ≥2 qualifying words) + `isNoiseLine` — quality is secured
   by these, not word-count floors. Adaptive threshold: single-word dishes need a strong
@@ -169,15 +193,23 @@ User uploads menu photo (src/app/scan)
 
 - Real menu photos are hard to source (wiki/unsplash return food photos). The reliable
   method: PIL-generated synthetic menus (Pillow installed) → POST to `/api/scan`.
-- **Offline regression corpus:** `corpus/` (gitignored) holds 8 PIL-generated menus
+- **Offline regression corpus:** `corpus/` (gitignored) holds 20 PIL-generated menus
   (`menu_*.png`) + `ground_truth.json`; the harness is `test_batch.ts` at the repo ROOT
   (its imports and paths assume root CWD). Run `npx tsx test_batch.ts` — it runs every
   menu through the full local OCR pipeline and diffs against ground truth. Current
-  state: **135/135 exact name+price+category (0 name/price diffs, 0 missing, 0 extra),
-  deterministic across runs** — first fully-green run was v12 (2026-08). The harness
-  MUST run with `OLLAMA_REFINE=0 OLLAMA_VISION=0` (live Ollama would make it
-  non-deterministic and slow). Add a new menu PNG + truth entries when you change
-  parser logic.
+  state: **154/154 exact name+price+category across 20 menus (0 name/price diffs,
+  0 missing, 0 extra), deterministic across runs** — first fully-green run was v12
+  (2026-08); the 3 merged-row/price-leak menus were added 2026-08. The harness
+  MUST run with `OLLAMA_REFINE=0 OLLAMA_VISION=0 OLLAMA_CLEAN=0` (live Ollama would
+  make it non-deterministic and slow — and the clean layer can silently DROP lines,
+  e.g. a price-less dish, while "restoring" text). Add a new menu PNG + truth entries
+  when you change parser logic.
+- **Splitter unit probes:** `test_splitter.ts` (root, gitignored) exercises
+  `splitMergedDishLine`/`splitMergedItemsFallback` directly — fast, no OCR. Covers
+  the fused-row shapes (2- and 3-dish rows, digit-start second halves, space-cents
+  mid prices like "$5 25", Onion Rings-style word-boundary traps) and the
+  never-split guards (size variants, add-ons, "Chicken 65", "1/2 lb Burger").
+  Run `PYTHONPATH= npx tsx test_splitter.ts` — must print `ALL PROBES PASS`.
 - Ad-hoc scripts: name them `test_*.py` / `test_*.js` / `test_*.ts` (gitignored) and
   delete after use. `test_probe*.ts` one-off probes are fine, just delete them.
 - Parser helpers can be exercised directly with `node -e` snippets duplicating the logic,

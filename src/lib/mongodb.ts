@@ -122,6 +122,27 @@ class LocalCollection {
     return { matchedCount: count, modifiedCount: count };
   }
 
+  /**
+   * Apply a batch of distinct per-document updates with ONE read + ONE write.
+   * The queue's enrichment write-back used to call updateOne per dish, which
+   * re-read and re-wrote the entire collection file for every dish in a scan
+   * (N full-file rewrites per job, racing under the 3-worker pool). Each entry
+   * is { query, $set } — $set values may differ per doc.
+   */
+  bulkUpdate(updates: { query: any; $set: any }[]) {
+    if (!updates || updates.length === 0) return { matchedCount: 0, modifiedCount: 0 };
+    const data = this._read();
+    let count = 0;
+    for (const { query, $set } of updates) {
+      const idx = data.findIndex(item => this._match(item, query));
+      if (idx === -1) continue;
+      data[idx] = { ...data[idx], ...($set || {}), updated_at: new Date().toISOString() };
+      count++;
+    }
+    if (count > 0) this._write(data);
+    return { matchedCount: count, modifiedCount: count };
+  }
+
   deleteOne(query: any) {
     const data = this._read();
     const idx = data.findIndex(item => this._match(item, query));
