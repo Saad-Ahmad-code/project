@@ -16,3 +16,5 @@ test_*.ts
 corpus/
 __pycache__/
 *.pyc
+.vercel
+.env*
