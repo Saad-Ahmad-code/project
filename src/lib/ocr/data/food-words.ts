@@ -7,7 +7,7 @@ export function isFoodRelated(word: string): boolean {
     /^(lobster|mutton|turkey|duck|pizza|pasta|burger|steak|pancake)$/.test(w) ||
     /^(waffle|noodle|rice|bread|toast|wrap|taco|burrito|dosa|naan|roti)$/.test(w) ||
     /^(paratha|biryani|curry|tikka|masala|korma|salad|soup|fries)$/.test(w) ||
-    /^(cheese|butter|cream|milk|eggs|omelet|omelette|sandwich|pudding)$/.test(w) ||
+    /^(cheese|butter|cream|milk|egg|eggs|omelet|omelette|sandwich|pudding)$/.test(w) ||
     /^(cake|pie|cookie|brownie|muffin|donut|doughnut|mousse|candy|tiramisu)$/.test(w) ||
     /^(cheesecake|pavlova|eclair|profiterole|parfait|trifle)$/.test(w) ||
     /^(coffee|latte|cappuccino|espresso|mocha|chai|tea|soda|juice)$/.test(w) ||

@@ -69,9 +69,16 @@ interface TesseractPara {
 export function groupIntoLines(words: WordPos[]): TextLine[] {
   if (words.length === 0) return [];
 
+  // Adaptive line tolerance: scales with the median word height so that
+  // small-font menus (tight leading) group correctly while large-font
+  // menus don't fuse distinct lines. Clamped to a sane band.
+  const heights = words.map(w => w.h).filter(h => h > 0).sort((a, b) => a - b);
+  const medianH = heights.length ? heights[Math.floor(heights.length / 2)] : 20;
+  const yTol = Math.max(6, Math.min(16, medianH * 0.6));
+
   const sorted = [...words].sort((a, b) => {
     const yDiff = a.y - b.y;
-    if (Math.abs(yDiff) > 8) return yDiff;
+    if (Math.abs(yDiff) > yTol) return yDiff;
     return a.x - b.x;
   });
 
@@ -79,7 +86,7 @@ export function groupIntoLines(words: WordPos[]): TextLine[] {
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1];
     const curr = sorted[i];
-    if (Math.abs(curr.y - prev.y) <= 10) {
+    if (Math.abs(curr.y - prev.y) <= yTol) {
       lineGroups[lineGroups.length - 1].push(curr);
     } else {
       lineGroups.push([curr]);

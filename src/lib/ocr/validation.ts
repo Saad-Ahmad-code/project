@@ -42,7 +42,9 @@ export function isNoiseLine(text: string): boolean {
   if (/^www[a-z]/i.test(t.trim()) && !t.includes(".")) return true;
 
   const words = t.split(/\s+/);
-  if (words.length === 1 && words[0].length <= 3 && /^[A-Z][a-z]*$/.test(words[0])) return true;
+  // Single-word Title-case items ≤3 chars are usually OCR junk ("The",
+  // "And", "Est") — but never drop real food words ("Tea", "Egg", "Pie").
+  if (words.length === 1 && words[0].length <= 3 && /^[A-Z][a-z]*$/.test(words[0]) && !isFoodRelated(words[0])) return true;
 
   if (/^[^\p{L}\p{N}]+$/u.test(t)) return true;
 

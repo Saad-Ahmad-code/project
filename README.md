@@ -45,7 +45,7 @@ OCR still works offline).
 | `npm run typecheck` | TypeScript (`tsc --noEmit`) |
 | `npm run check` | `lint` + `typecheck` |
 | `npm run test` | Full local test suite: unit tests → splitter probes → OCR batch (154/154) |
-| `npm run test:units` | 41 unit tests (cleaner, validation, price, name cleanup, merged-row splitter) |
+| `npm run test:units` | 47 unit tests (cleaner, validation, price, name cleanup, merged-row splitter, line grouping) |
 | `npm run test:splitter` | Splitter regression probes (fused-row cases, never-split guards) |
 | `npm run test:ocr` | Full OCR batch against 20 synthetic menus vs ground truth |
 
@@ -112,7 +112,7 @@ validation gates that reject garbled OCR while accepting single-word dishes.
 
 ## Testing
 
-- **Unit tests** (`test_units.ts`): 41 assertions across the OCR helper modules.
+- **Unit tests** (`test_units.ts`): 47 assertions across the OCR helper modules.
 - **Splitter probes** (`test_splitter.ts`): fused-row splitting edge cases.
 - **OCR regression** (`test_batch.ts` + `corpus/`): 20 PIL-generated menus, 154 dishes —
   exact name + price + category match against ground truth, deterministic.
@@ -144,4 +144,5 @@ that have caused production bugs.
   (+ `agent_log_dlq` for failed jobs).
 - **AI providers:** OpenRouter (primary) → Groq → … graceful fallback chain with
   per-model circuit breakers.
-- **Images:** Unsplash, Pexels, Bing, Wikipedia, Openverse, MealDB — scored & filtered.
+- **Images:** Unsplash, Pexels, Bing, Wikipedia, Openverse, MealDB, Pollinations
+  (keyless AI generator fallback), Local DB — scored & filtered.

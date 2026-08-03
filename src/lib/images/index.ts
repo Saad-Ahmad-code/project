@@ -10,6 +10,7 @@ import { searchBing } from "@/lib/images/bing";
 import { searchWikipedia } from "@/lib/images/wikipedia";
 import { searchOpenverse } from "@/lib/images/openverse";
 import { searchMealDB } from "@/lib/images/mealdb";
+import { searchPollinations } from "@/lib/images/pollinations";
 import { searchLocalDB } from "@/lib/images/local-db";
 
 interface ImageResult {
@@ -144,6 +145,7 @@ const sources: ImageSource[] = [
   { name: "wikipedia", weight: 18, search: searchWikipedia },
   { name: "openverse", weight: 15, search: searchOpenverse },
   { name: "mealdb", weight: 10, search: searchMealDB },
+  { name: "pollinations", weight: 5, search: searchPollinations },
   { name: "local", weight: 3, search: searchLocalDB },
 ];
 
