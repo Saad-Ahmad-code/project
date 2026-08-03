@@ -1,8 +1,0 @@
-{
-  "framework": "next",
-  "build": {
-    "env": {
-      "NODE_ENV": "production"
-    }
-  }
-}

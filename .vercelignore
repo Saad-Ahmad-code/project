@@ -1,5 +1,0 @@
-corpus/
-test_*.ts
-data/
-.env*
-.venv/
