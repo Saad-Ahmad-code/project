@@ -6,6 +6,9 @@ node_modules/
 eng.traineddata
 .env.local
 data/
+# The OCR data modules are source code — re-include them despite the data/ rule
+!src/lib/ocr/data/
+!src/lib/ocr/data/*
 .kilo/
 *.jpg
 *.png
