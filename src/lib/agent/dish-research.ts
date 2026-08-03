@@ -4,6 +4,7 @@
  */
 import { logger } from "@/lib/logger";
 import { chatCompletions } from "@/lib/ai/client";
+import { RESEARCH_HIT_TTL_MS, RESEARCH_MISS_TTL_MS, RESEARCH_CACHE_MAX } from "@/lib/config";
 
 interface DishInfo {
   description: string;
@@ -17,9 +18,9 @@ interface DishInfo {
 // scans cost ZERO AI calls instead of one per dish. Negative results are
 // cached briefly (10 min) so a down provider chain isn't hammered per dish.
 const researchCache = new Map<string, { data: DishInfo | null; ts: number }>();
-const HIT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for successes
-const MISS_TTL_MS = 10 * 60 * 1000; // 10 min for failures
-const CACHE_MAX = 500;
+const HIT_TTL_MS = RESEARCH_HIT_TTL_MS; // 7 days for successes
+const MISS_TTL_MS = RESEARCH_MISS_TTL_MS; // 10 min for failures
+const CACHE_MAX = RESEARCH_CACHE_MAX;
 
 // In-flight request deduplication — when multiple concurrent calls for the same
 // dish arrive before the first resolves, they all share the same Promise.

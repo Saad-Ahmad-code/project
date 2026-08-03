@@ -31,12 +31,16 @@ export async function GET(request: NextRequest) {
     const { db } = await (await import('@/lib/mongodb')).connectToDatabase();
     const scanCount = db('scans').countDocuments();
     const dishCount = db('dishes').countDocuments();
+    const { checkOllama } = await import('@/lib/diagnostics');
+    const ollama = await checkOllama();
     return NextResponse.json({
       status: 'ok',
       storage: 'local-json',
       node: process.version,
       scans: scanCount,
       dishes: dishCount,
+      ollama: ollama.ok ? `reachable (${ollama.models.length} models)` : 'unreachable',
+      ollama_models: ollama.models,
     });
   }
 

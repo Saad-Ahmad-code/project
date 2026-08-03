@@ -4,6 +4,15 @@
  */
 import { logger } from "@/lib/logger";
 import { providers, getCloudflareBaseURL, VISION_MODELS } from "@/lib/ai/providers";
+import {
+  AI_CONSECUTIVE_FAILURES,
+  AI_COOLDOWN_MS,
+  AI_REQUEST_TIMEOUT_MS,
+  AI_MAX_RETRIES,
+  AI_BASE_DELAY_MS,
+  OCR_CACHE_TTL_MS,
+  OCR_CACHE_MAX_ENTRIES,
+} from "@/lib/config";
 
 // Node builtins are resolved at runtime via eval('require') so webpack does
 // not statically trace them when this module is pulled into bundles such as
@@ -37,7 +46,7 @@ const ocrCache = new Map<string, { result: string; ts: number }>();
 function cacheGet(key: string): string | null {
   const entry = ocrCache.get(key);
   if (entry) {
-    if (Date.now() - entry.ts > 300000) {
+    if (Date.now() - entry.ts > OCR_CACHE_TTL_MS) {
       ocrCache.delete(key);
       return null;
     }
@@ -47,80 +56,11 @@ function cacheGet(key: string): string | null {
 }
 
 function cacheSet(key: string, result: string): void {
-  if (ocrCache.size >= 50) {
+  if (ocrCache.size >= OCR_CACHE_MAX_ENTRIES) {
     const first = ocrCache.entries().next().value;
     if (first) ocrCache.delete(first[0]);
   }
   ocrCache.set(key, { result, ts: Date.now() });
-}
-
-// ── OpenRouter AI OCR (fallback) ──
-async function callOCRAI(rawText: string): Promise<{ name: string; price: number | null; description: string }[] | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey || rawText.length < 10) return null;
-
-  logger.info("[OCRAI] Asking free model to extract dishes from raw OCR...");
-
-  const prompt = `You are a menu OCR processor. Below is the RAW OCR text from a restaurant menu photo. Extract ONLY the actual dish items (food/drink items the restaurant sells).
-
-Rules:
-- Return ONLY a JSON array (no markdown, no explanation)
-- Each item: { "name": "Dish Name", "price": 12.99|null, "description": "brief description or empty string" }
-- Extract price if visible (number, no $)
-- IGNORE: restaurant name, phone numbers, addresses, hours, tax/tip info, payment info, allergens, "our menu" headers, "specials" titles
-- IGNORE: garbled/nonsense text lines
-- If you cannot identify ANY real dishes, return empty array []
-- Be honest — don't invent dishes that aren't there
-
-RAW OCR TEXT:
-"""
-${rawText.slice(0, 3000)}
-"""`;
-
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://menulens.app",
-                "X-Title": "MenuLens",
-      },
-      body: JSON.stringify({
-        model: "google/gemma-4-26b-a4b-it:free",
-        messages: [
-          { role: "system", content: "You extract dish items from menu OCR text. Return only valid JSON arrays." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.05,
-        max_tokens: 2048,
-      }),
-      signal: AbortSignal.timeout(20000),
-    });
-
-    if (!res.ok) {
-      logger.warn(`[OCRAI] Model returned ${res.status}`);
-      return null;
-    }
-
-    const data = await res.json();
-    const content: string | undefined = data.choices?.[0]?.message?.content;
-    if (!content) return null;
-
-    const match = content.match(/\[[\s\S]*\]/);
-    if (!match) return null;
-
-    const items = JSON.parse(match[0]).filter(
-      (item: { name: string }) => item.name && typeof item.name === "string" && item.name.length > 2
-    );
-
-    logger.info(`[OCRAI] Extracted ${items.length} dishes from raw OCR`);
-    return items.length > 0 ? items : null;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(`[OCRAI] Failed: ${msg.slice(0, 100)}`);
-    return null;
-  }
 }
 
 // ── Python OCR Pipeline ──
@@ -185,13 +125,11 @@ async function pythonOCR(imageBuffer: ArrayBuffer): Promise<string> {
 
     logger.info(`[PythonOCR] ${itemCount} items (conf=${avgConf}, strat=${result.strategy || "?"})`);
 
-    if (itemCount === 0 || avgConf < 35) {
-      logger.info("[PythonOCR] Low quality — trying AI extraction from raw text...");
-      const aiResult = await callOCRAI(result.raw_text || "");
-      if (aiResult && aiResult.length > 0) {
-        result.items = aiResult as { name?: string; description?: string; price?: number; category?: string; confidence?: number }[];
-      }
-    }
+    // NOTE: no AI extraction from raw text here — the legacy callOCRAI path
+    // was removed (it burned the shared OpenRouter free quota on every
+    // low-quality scan). Low-quality Python OCR results are returned as-is;
+    // the OCR engine's vision layer (engine.ts L4 / callGeminiVision) is the
+    // higher-quality rescue path.
 
     if (!result.items || result.items.length === 0) {
       const fallback = JSON.stringify({ menu_name: "", items: [] });
@@ -223,15 +161,18 @@ async function pythonOCR(imageBuffer: ArrayBuffer): Promise<string> {
 }
 
 // ── Circuit breaker ──
-// Tracks per-key failures. After CONSECUTIVE_FAILURES failures (default 3),
-// the key's circuit opens for COOLDOWN_MS (default 60s): the provider is
+// Tracks per-model failures. After CONSECUTIVE_FAILURES failures (default 3),
+// the model's circuit opens for COOLDOWN_MS (default 60s): the provider is
 // skipped entirely instead of burning a 30s timeout per attempt. After the
 // cooldown, a single trial (half-open) decides whether to close the circuit
-// (success) or reopen it (another failure). Keys are shared across models
-// (all OpenRouter models use OPENROUTER_API_KEY), so the breaker is keyed
-// by apiKeyEnv — one dead key skips all of its models at once.
-const CONSECUTIVE_FAILURES = 3;
-const COOLDOWN_MS = 60_000;
+// (success) or reopen it (another failure).
+//
+// Keyed by model name (not apiKeyEnv): a dead OpenRouter free model opens
+// its own circuit without blocking Groq/Gemini providers that use different
+// keys. Two providers sharing a model slug share the circuit, which is the
+// desired behavior (same upstream endpoint).
+const CONSECUTIVE_FAILURES = AI_CONSECUTIVE_FAILURES;
+const COOLDOWN_MS = AI_COOLDOWN_MS;
 
 interface CircuitState {
   failures: number;
@@ -242,34 +183,41 @@ interface CircuitState {
 
 const circuitStore = new Map<string, CircuitState>();
 
-function circuitOpen(apiKeyEnv: string): boolean {
-  const state = circuitStore.get(apiKeyEnv);
+function circuitOpen(model: string): boolean {
+  const state = circuitStore.get(model);
   if (!state || !state.open) return false;
   // Cooldown elapsed → half-open: allow one trial call.
   if (Date.now() - state.openedAt >= COOLDOWN_MS) return false;
   return true;
 }
 
-function circuitRecordFailure(apiKeyEnv: string): void {
-  const state = circuitStore.get(apiKeyEnv) || { failures: 0, openedAt: 0, open: false };
+function circuitRecordFailure(model: string): void {
+  const state = circuitStore.get(model) || { failures: 0, openedAt: 0, open: false };
   state.failures += 1;
   if (state.failures >= CONSECUTIVE_FAILURES) {
     state.open = true;
     state.openedAt = Date.now();
-    logger.warn(`[AI] Circuit breaker OPENED for ${apiKeyEnv} (${state.failures} consecutive failures)`);
+    logger.warn(`[AI] Circuit breaker OPENED for ${model} (${state.failures} consecutive failures)`);
   }
-  circuitStore.set(apiKeyEnv, state);
+  circuitStore.set(model, state);
 }
 
-function circuitRecordSuccess(apiKeyEnv: string): void {
-  const state = circuitStore.get(apiKeyEnv);
+function circuitRecordSuccess(model: string): void {
+  const state = circuitStore.get(model);
   if (!state) return;
   if (state.open) {
-    logger.info(`[AI] Circuit breaker CLOSED for ${apiKeyEnv} after cooldown`);
+    logger.info(`[AI] Circuit breaker CLOSED for ${model} after cooldown`);
   }
   state.failures = 0;
   state.open = false;
-  circuitStore.set(apiKeyEnv, state);
+  circuitStore.set(model, state);
+}
+
+/** Errors worth opening the circuit for: transient/upstream problems that
+ *  may clear within the cooldown. Permanent config errors (401/404/400) are
+ *  not recorded — they'd only reopen the circuit on every call. */
+function isTransientFailure(msg: string): boolean {
+  return /timeout|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|\b429\b|rate limit|quota|5\d\d|internal|unavailable|overloaded|busy/i.test(msg);
 }
 
 // ── Call a single AI provider ──
@@ -279,8 +227,8 @@ async function callProvider(provider: { name: string; baseURL: string; model: st
   const apiKey = process.env[provider.apiKeyEnv];
   if (!apiKey) throw new Error(`No API key for ${provider.name}`);
 
-  const MAX_RETRIES = 2;
-  const BASE_DELAY_MS = 500;
+  const MAX_RETRIES = AI_MAX_RETRIES;
+  const BASE_DELAY_MS = AI_BASE_DELAY_MS;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -300,7 +248,7 @@ async function callProvider(provider: { name: string; baseURL: string; model: st
           ...provider.headers,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -501,6 +449,10 @@ export async function chatCompletions(opts: ChatOptions): Promise<{ choices: { m
   const deadModels = new Set<string>();
 
   for (const provider of available) {
+    if (circuitOpen(provider.model)) {
+      logger.warn(`AI provider ${provider.name} skipped: circuit open for ${provider.model}`);
+      continue;
+    }
     if (rateLimitedKeys.has(provider.apiKeyEnv)) {
       logger.warn(`AI provider ${provider.name} skipped: ${provider.apiKeyEnv} already rate-limited`);
       continue;
@@ -517,6 +469,7 @@ export async function chatCompletions(opts: ChatOptions): Promise<{ choices: { m
       if (!result?.choices?.[0]?.message?.content) {
         throw new Error(`${provider.name} returned empty content`);
       }
+      circuitRecordSuccess(provider.model);
       return result;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -525,6 +478,9 @@ export async function chatCompletions(opts: ChatOptions): Promise<{ choices: { m
         rateLimitedKeys.add(provider.apiKeyEnv);
       } else if (msg.includes("404")) {
         deadModels.add(provider.model);
+      }
+      if (isTransientFailure(msg)) {
+        circuitRecordFailure(provider.model);
       }
       logger.warn(`AI provider ${provider.name} failed: ${lastError.message}`);
     }

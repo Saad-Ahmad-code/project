@@ -18,13 +18,9 @@ import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { logError } from '@/lib/error-handler';
 import { sanitizeErrorMessage } from '@/lib/utils';
 import { requireCsrf } from '@/lib/csrf';
+import { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS, MAX_IMAGE_SIZE } from '@/lib/config';
 import type { MenuItem } from '@/types/menu';
 import type { OCRItem } from '@/lib/ocr/engine';
-
-const RATE_LIMIT_MAX = 10;
-const RATE_LIMIT_WINDOW = 60 * 1000;
-
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 
 function sseEncode(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -45,7 +41,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (!checkRateLimit(ip)) {
+    if (!checkRateLimit(ip, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)) {
       return new Response(sseEncode('error', { message: 'Too many scans. Wait a minute and try again.' }), {
         status: 429,
         headers: { 'Content-Type': 'text/event-stream' },

@@ -3,23 +3,17 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { DishCard } from "@/components/dishes/DishCard";
 import { NutritionPanel } from "@/components/NutritionPanel";
 import { RecipePanel } from "@/components/RecipePanel";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { useCsrf } from "@/hooks/useCsrf";
+import { useDebounce } from "@/hooks/useDebounce";
+import { SuggestionPanel, type FoodExpertSuggestion } from "@/components/SuggestionPanel";
+import { DietaryFilter } from "@/components/DietaryFilter";
 import type { MenuItem } from "@/types/menu";
-
-interface FoodExpertSuggestion {
-  top_picks?: { name: string; reason: string; pairing?: string; allergens?: string[] }[];
-  must_try?: string;
-  overview?: string;
-  tips?: string[];
-}
 
 export default function ResultsPage() {
   const params = useParams();
@@ -37,7 +31,6 @@ export default function ResultsPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   // Dietary preferences
   const [dietPrefs, setDietPrefs] = useState<string[]>([]);
-  const [showPrefs, setShowPrefs] = useState(false);
 
   useEffect(() => {
     if (!params.id) return;
@@ -101,14 +94,18 @@ export default function ResultsPage() {
     );
   };
 
+  // Debounce the active filter set so a rapid burst of pill toggles settles
+  // into ONE filteredItems recomputation instead of one per click.
+  const debouncedPrefs = useDebounce(dietPrefs, 150);
+
   const filteredItems = useMemo(() => {
-    if (dietPrefs.length === 0) return items;
+    if (debouncedPrefs.length === 0) return items;
     return items.filter((item) => {
       const tags = (item.dietary_tags || []).map((t) => t.toLowerCase());
       const name = item.name.toLowerCase();
       const desc = (item.description || "").toLowerCase();
       const combined = `${name} ${desc} ${tags.join(" ")}`;
-      for (const pref of dietPrefs) {
+      for (const pref of debouncedPrefs) {
         if (pref === "vegetarian" && (combined.includes("meat") || combined.includes("chicken") || combined.includes("beef") || combined.includes("fish") || combined.includes("pork"))) return false;
         if (pref === "vegan" && (combined.includes("dairy") || combined.includes("cheese") || combined.includes("cream") || combined.includes("milk") || combined.includes("egg") || combined.includes("meat") || combined.includes("honey"))) return false;
         if (pref === "gluten-free" && (combined.includes("bread") || combined.includes("pasta") || combined.includes("flour") || combined.includes("wheat") || combined.includes("naan") || combined.includes("bun"))) return false;
@@ -118,7 +115,7 @@ export default function ResultsPage() {
       }
       return true;
     });
-  }, [items, dietPrefs]);
+  }, [items, debouncedPrefs]);
 
   if (loading) return (
     <main className="max-w-3xl mx-auto p-8 min-h-screen">
@@ -157,130 +154,22 @@ export default function ResultsPage() {
         <p className="text-sm text-muted-foreground mb-6">{scan.agent_summary}</p>
       )}
 
-      {/* AI Food Expert Button */}
-      {!suggestionsLoading && !showSuggestions && (
-        <Button
-          onClick={getSuggestions}
-          className="w-full mb-6 font-bold bg-gradient-to-br from-emerald-600 to-emerald-700"
-        >
-          Ask AI Food Expert
-        </Button>
-      )}
-
-      {suggestionsLoading && (
-        <div className="mb-6 p-4 bg-surface rounded-lg text-center">
-          <Progress value={60} className="h-1.5 mb-2" />
-          <p className="text-sm text-muted-foreground">AI Food Expert is analyzing your menu...</p>
-        </div>
-      )}
-
-      {suggestionsError && !suggestionsLoading && (
-        <div className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800 text-red-400 text-sm">
-          {suggestionsError}
-        </div>
-      )}
-
-      {/* AI Food Expert Suggestions Panel */}
-      <AnimatePresence>
-        {showSuggestions && suggestions && (
-          <motion.div
-            key="suggestions"
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className="mb-6 rounded-xl p-5 border border-primary overflow-hidden bg-gradient-to-br from-emerald-900 to-emerald-800"
-          >
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
-              <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted-foreground bg-transparent border-none cursor-pointer">Hide</button>
-            </div>
-
-            {suggestions.overview && (
-              <p className="text-emerald-100 text-sm mb-4 leading-relaxed">{suggestions.overview}</p>
-            )}
-
-            {suggestions.must_try && (
-              <div className="bg-white/10 rounded-lg p-3 mb-4">
-                <span className="text-amber-300 font-bold text-xs block mb-1">MUST TRY</span>
-                <span className="text-white text-lg font-bold">{suggestions.must_try}</span>
-              </div>
-            )}
-
-            {suggestions.top_picks && suggestions.top_picks.length > 0 && (
-              <div className="mb-4">
-                <p className="text-emerald-200 font-bold mb-2 text-sm">TOP PICKS</p>
-                {suggestions.top_picks.map((pick, i) => (
-                  <div key={i} className="bg-white/5 rounded-md p-3 mb-1.5">
-                    <p className="text-white font-bold text-sm mb-0.5">{pick.name}</p>
-                    <p className="text-emerald-100 text-xs mb-0.5">{pick.reason}</p>
-                    {pick.pairing && <p className="text-amber-300 text-xs">{pick.pairing}</p>}
-                    {pick.allergens && pick.allergens.length > 0 && (
-                      <div className="flex gap-1 mt-1 flex-wrap">
-                        {pick.allergens.map((a) => (
-                          <span key={a} className="text-[0.65rem] px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-800">
-                            {a}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {suggestions.tips && suggestions.tips.length > 0 && (
-              <div>
-                <p className="text-emerald-200 font-bold mb-2 text-sm">TIPS</p>
-                {suggestions.tips.map((tip, i) => (
-                  <p key={i} className="text-emerald-100 text-xs mb-1 pl-4">&bull; {tip}</p>
-                ))}
-              </div>
-            )}
-
-            <Button
-              onClick={getSuggestions}
-              variant="outline"
-              size="sm"
-              className="w-full mt-3 border-primary text-emerald-100"
-            >
-              Regenerate Suggestions
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* AI Food Expert */}
+      <SuggestionPanel
+        suggestions={suggestions}
+        loading={suggestionsLoading}
+        error={suggestionsError}
+        onRegenerate={getSuggestions}
+        onHide={() => setShowSuggestions(false)}
+      />
 
       {/* Dietary Preference Filter */}
-      <div className="mb-4">
-        <button
-          onClick={() => setShowPrefs(!showPrefs)}
-          className="text-sm text-muted-foreground hover:text-white transition-colors bg-transparent border border-border rounded-md px-3 py-1.5 cursor-pointer"
-        >
-          {showPrefs ? "Hide Filters" : `Dietary Filters${dietPrefs.length > 0 ? ` (${dietPrefs.length})` : ""}`}
-        </button>
-        {showPrefs && (
-          <div className="flex gap-2 mt-2 flex-wrap">
-            {["vegetarian", "vegan", "gluten-free", "halal", "low-carb", "keto"].map((pref) => (
-              <button
-                key={pref}
-                onClick={() => togglePref(pref)}
-                className={`text-xs px-3 py-1 rounded-full border cursor-pointer transition-colors ${
-                  dietPrefs.includes(pref)
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-surface text-muted-foreground border-border hover:text-white"
-                }`}
-              >
-                {pref === 'gluten-free' ? 'Gluten-Free' : pref.charAt(0).toUpperCase() + pref.slice(1)}
-              </button>
-            ))}
-          </div>
-        )}
-        {dietPrefs.length > 0 && (
-          <p className="text-xs text-muted-foreground mt-2">
-            {filteredItems.length} of {items.length} dishes match your preferences
-          </p>
-        )}
-      </div>
+      <DietaryFilter
+        dietPrefs={dietPrefs}
+        onToggle={togglePref}
+        totalCount={items.length}
+        filteredCount={filteredItems.length}
+      />
 
       {/* Dish Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

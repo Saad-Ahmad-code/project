@@ -9,9 +9,10 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test:ocr": "OLLAMA_REFINE=0 OLLAMA_VISION=0 OLLAMA_CLEAN=0 npx tsx test_batch.ts",
-    "test:splitter": "PYTHONPATH= npx tsx test_splitter.ts",
-    "test": "npm run test:splitter && npm run test:ocr",
+    "test:ocr": "cross-env OLLAMA_REFINE=0 OLLAMA_VISION=0 OLLAMA_CLEAN=0 npx tsx test_batch.ts",
+    "test:splitter": "cross-env PYTHONPATH= npx tsx test_splitter.ts",
+    "test:units": "cross-env PYTHONPATH= npx tsx test_units.ts",
+    "test": "npm run test:units && npm run test:splitter && npm run test:ocr",
     "check": "npm run lint && npm run typecheck"
   },
   "dependencies": {
@@ -44,6 +45,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "cross-env": "^10.1.0",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "shadcn": "^4.16.0",

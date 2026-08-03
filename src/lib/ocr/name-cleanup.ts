@@ -1,0 +1,65 @@
+import { OCR_CORRECTIONS } from "./data/ocr-corrections";
+
+export function cleanDishName(raw: string): string {
+  let name = raw.trim();
+
+  name = name.replace(/^[★☆⭐●◆▪▸▹►→▪•¶※✓✗✘✔✖✝✙✦✧⬟⬡⌾⭑✪✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀]+/, "").trim();
+
+  name = name
+    .replace(/^(NEW!?|CHEF'?S?\s*SPECIAL|SIGNATURE|HOTEL|RESTAURANT|CAFE|CAFÉ|BAR|LOUNGE|GRILL|GRILLE|BISTRO)\s+/i, "")
+    .trim();
+
+  name = name.replace(/^\s*\[.*?\]\s*/, "").trim();
+  name = name.replace(/\s*\[.*?\]\s*$/, "").trim();
+  name = name.replace(/^\s*\(.*?\)\s*/, "").trim();
+  name = name.replace(/\s*\(.*?\)\s*$/, "").trim();
+
+  name = name.replace(/^\d+[.)\s]+/, "").trim();
+
+  name = name.replace(/^[$€£¥RsSs.]*\s*\d{1,3}(?:[.,]\s?\d{1,2}|\s+\d{2})\s+/, "").trim();
+
+  name = name.replace(/[;,]+$/, "").trim();
+
+  name = name.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+
+  name = name.replace(/^[-–—]+/, "").trim();
+  name = name.replace(/[-–—]+$/, "").trim();
+  name = name.replace(/[-–—]{2,}/g, " ").replace(/\s+/g, " ").trim();
+  name = name.replace(/\s+[-–—]+\s+/g, " ").trim();
+  name = name.replace(/^[-–—]+\s+/, "").trim();
+
+  name = name.replace(/(\d+)\s*\/\s*(\d+)/g, "$1\u2044$2");
+  name = name.replace(/[*>{<}%]/g, " ").replace(/\s+/g, " ").trim();
+  name = name.replace(/[|`~^\\]/g, " ").replace(/\s+/g, " ").trim();
+  name = name.replace(/\u2044/g, "/");
+
+  name = name.replace(/[(){}[\]]/g, " ").replace(/\s+/g, " ").trim();
+
+  name = name.replace(/\.{2,}/g, " ").replace(/\s+/g, " ").trim();
+  name = name.replace(/^\s*\.\s*/, "").trim();
+  name = name.replace(/\s*\.\s*$/, "").trim();
+  name = name.replace(/\s+\.\s+/g, " ").trim();
+  name = name.replace(/\./g, " ").replace(/\s+/g, " ").trim();
+
+  name = name.replace(/\s+(NEW|SPICY|HOT|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE)$/i, "").trim();
+
+  if (name.length > 3) {
+    name = name.replace(/\s+S$/, "").trim();
+  }
+
+  name = name.replace(/\s+(?:V|VG|GF|DF|N)\s*$/i, "").trim();
+
+  let prev = name;
+  while (name.length > 3) {
+    const next = name.replace(/\s+\S{1,2}$/, "").trim();
+    if (next === name) break;
+    name = next;
+  }
+  if (name.length < 3) name = prev;
+
+  name = name.replace(/\s+/g, " ").trim();
+
+  if (name.length < 3 || /^[^\p{L}]+$/u.test(name)) return raw.trim();
+
+  return name;
+}

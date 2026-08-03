@@ -31,6 +31,41 @@ export const NON_FOOD_KEYWORDS = new Set([
   "traffic", "city", "town", "village", "neighborhood", "park", "garden", "zoo", "museum",
   "library", "store", "shop", "mall", "market", "restaurant exterior", "restaurant interior",
   "bar interior", "cafe interior", "kitchen", "chef portrait", "logo design", "brand logo",
+  // Venue / interior shots that dominate restaurant-dish searches but show
+  // the room, not the food (expanded per plan item: interior/exterior shots,
+  // table settings, cutlery, signage).
+  "interior", "exterior", "room", "dining room", "dining area", "dining hall",
+  "table setting", "tabletop", "table top", "cutlery", "silverware",
+  "napkin", "tablecloth", "menu board", "menu sign", "signage", "storefront", "facade",
+  "window display", "display case", "counter", "bar counter", "bar stools", "bar stool",
+  "pub", "tavern", "cafe", "bistro", "diner", "lounge", "terrace", "patio", "deck",
+  "food court", "buffet", "banquet", "venue", "event", "restaurant", "restaurant interior",
+  "food truck", "street food vendor", "vendor", "catering", "kitchen counter", "kitchen sink",
+  "kitchen tools", "cookware", "pots and pans", "pots", "pans", "utensils", "spatula",
+  "whisk", "measuring cups", "cutting board", "knife block", "blender", "mixer",
+  "oven", "stove", "stovetop", "range", "microwave", "fridge", "refrigerator", "freezer",
+  "dishwasher", "sink", "pantry", "cupboard", "cabinets", "shelves", "shelf", "rack",
+]);
+
+/**
+ * Terms that indicate a food-adjacent photo is NOT a finished dish: cooking
+ * in progress, raw ingredients, hands, plating, packaging — all common in
+ * search results for a dish name but wrong as the dish's hero image.
+ */
+export const FOOD_EXCLUSION_KEYWORDS = new Set([
+  "cooking", "preparation", "prep", "preparing", "cook", "cooks", "cooking process",
+  "kitchen", "chef hands", "hands", "hand", "fingers", "plating", "plate up", "plated",
+  "garnish", "garnishing", "assembling", "assembly", "making", "making of", "behind the scenes",
+  "process", "step by step", "steps", "tutorial", "how to", "recipe card", "recipe book",
+  "recipe page", "ingredients", "ingredient", "raw", "uncooked", "unbaked", "dough",
+  "flour", "spices", "spice", "herbs", "seasoning", "marinade", "marinating", "mixing",
+  "mixing bowl", "bowl of flour", "batter", "mixture", "preparation table", "worktop",
+  "unboxing", "packaging", "package", "packet", "box", "carton", "jar", "bottle", "can",
+  "container", "label", "nutrition facts", "ingredient list", "shopping", "groceries",
+  "grocery", "supermarket", "market stall", "produce", "vegetable patch", "garden harvest",
+  "harvest", "planting", "growing", "greenhouse", "farmers market", "butcher", "fishmonger",
+  "bakery counter", "deli counter", "takeout container", "takeaway box", "delivery bag",
+  "food delivery", "meal prep", "mealprep", "lunchbox", "bento box", "tupperware",
 ]);
 
 export const FOOD_KEYWORDS = [

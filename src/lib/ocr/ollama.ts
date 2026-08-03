@@ -22,6 +22,7 @@
 
 import { isNoiseLine, CATEGORY_KEYWORDS } from "./local";
 import type { LocalOCRItem } from "./local";
+import { OLLAMA_TIMEOUT_MS, MAX_RAW_TEXT } from "@/lib/config";
 
 export interface OllamaRefineOptions {
   url?: string;
@@ -47,8 +48,7 @@ const DEFAULT_VISION_MODEL = "qwen2.5vl:3b";
 /** Local models are slower than cloud (gemma4 refine ≈15-21s warm); the
  *  reachability probe keeps the dead-server case at ~2s, so the generous
  *  cap only bites on a genuinely hung generation. */
-const DEFAULT_TIMEOUT_MS = 30000;
-const MAX_RAW_TEXT = 6000;
+const DEFAULT_TIMEOUT_MS = OLLAMA_TIMEOUT_MS;
 
 /** Mirror of the parser gate: ≥60% of words must have 3+ consecutive letters. */
 function hasSufficientRealWords(name: string): boolean {

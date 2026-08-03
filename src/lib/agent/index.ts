@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { researchDish } from "@/lib/agent/dish-research";
 import { searchDishImages } from "@/lib/images";
 import { chatCompletions } from "@/lib/ai/client";
+import { ENRICHMENT_CONCURRENCY } from "@/lib/config";
 import type { DishResult } from "@/types/menu";
 
 interface MenuItemInput {
@@ -16,18 +17,19 @@ interface MenuItemInput {
   price?: number;
   category?: string;
 }
+export type { MenuItemInput };
 
 export async function runAgent(
   items: MenuItemInput[],
   scanId: string,
   onProgress?: (done: number, total: number, dish: string) => void
-): Promise<{ summary: string; dishes: DishResult[] }> {
+): Promise<{ summary: string; dishes: DishResult[]; dishErrors: Record<string, string> }> {
   // Bounded worker pool: research + image search per dish hits external APIs
   // (AI provider + up to 6 image sources); a 40-dish menu must not fire 80
   // concurrent requests. Results stay positional so output order matches
   // input order regardless of completion order.
-  const ENRICHMENT_CONCURRENCY = 3;
   const results = new Array<DishResult>(items.length);
+  const dishErrors: Record<string, string> = {};
   let next = 0;
 
   async function worker(): Promise<void> {
@@ -62,6 +64,7 @@ export async function runAgent(
         } as DishResult;
       } catch (err) {
         logger.warn(`[Agent] Research failed for "${item.name}": ${err instanceof Error ? err.message : String(err)}`);
+        dishErrors[item.name] = err instanceof Error ? err.message : String(err);
         // Same failure shape as the old Promise.allSettled path: a random id
         // makes the queue's write-back (db.update by id) a no-op, so the
         // original dish doc stays untouched.
@@ -107,5 +110,5 @@ export async function runAgent(
     summary = `Menu with ${dishes.length} items`;
   }
 
-  return { summary, dishes };
+  return { summary, dishes, dishErrors };
 }

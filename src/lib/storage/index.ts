@@ -1,40 +1,43 @@
 /**
  * Storage layer — wraps local JSON database
- * Exports `db` object with methods expected by existing API routes
+ * Exports `db` object with methods expected by existing API routes.
+ * Generic defaults are `Document` (see src/lib/db-types.ts); pass an
+ * explicit type like `db.findById<ScanDoc>(...)` for full typing.
  */
 import { db as _db } from '../mongodb';
+import type { Document } from '../db-types';
 
 // API-compatible wrapper for existing route files
 export const db = {
-  findById<T = any>(collection: string, id: string): T | null {
+  findById<T = Document>(collection: string, id: string): T | null {
     return _db(collection).findOne({ id }) as T | null;
   },
-  findBy<T = any>(collection: string, query: any): T[] {
+  findBy<T = Document>(collection: string, query: Record<string, unknown>): T[] {
     return _db(collection).find(query) as T[];
   },
-  findAll<T = any>(collection: string, limit = 50): T[] {
+  findAll<T = Document>(collection: string, limit = 50): T[] {
     return _db(collection).find().slice(0, limit) as T[];
   },
-  count(collection: string, query?: any): number {
+  count(collection: string, query?: Record<string, unknown>): number {
     if (query) return _db(collection).find(query).length;
     return _db(collection).countDocuments();
   },
-  create<T = any>(collection: string, doc: any): T {
+  create<T = Document>(collection: string, doc: Partial<T>): { _id: string } {
     const result = _db(collection).insertOne(doc);
-    return { ...doc, id: result.insertedId } as T;
+    return { _id: result.insertedId };
   },
-  update<T = any>(collection: string, id: string, updates: any): { matched: boolean; data: T | null } {
+  update<T = Document>(collection: string, id: string, updates: Partial<T>): { matched: boolean; data: T | null } {
     const result = _db(collection).updateOne({ id }, { $set: updates });
     if (result.matchedCount === 0) return { matched: false, data: null };
     const data = _db(collection).findOne({ id }) as T | null;
     return { matched: true, data };
   },
   /** Apply many per-doc updates with a single read/write — see LocalCollection.bulkUpdate. */
-  bulkUpdate<T = any>(collection: string, updates: { query: any; $set: any }[]): { matched: number } {
+  bulkUpdate<T = Document>(collection: string, updates: { query: Record<string, unknown>; $set: Partial<T> }[]): { matched: number } {
     const result = _db(collection).bulkUpdate(updates);
     return { matched: result.matchedCount };
   },
-  deleteOne(collection: string, query: any) {
+  deleteOne(collection: string, query: Record<string, unknown>) {
     return _db(collection).deleteOne(query);
   }
 };

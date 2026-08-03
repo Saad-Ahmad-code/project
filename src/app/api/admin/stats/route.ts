@@ -24,7 +24,7 @@ export async function GET() {
     const completedScans = await db.count("scans", { status: "completed" });
 
     // Daily scan volume for last 7 days
-    const allScans = db.findAll("scans", 500);
+    const allScans = db.findAll<any>("scans", 500);
     const today = new Date();
     const dailyCounts: Record<string, number> = {};
     for (let i = 6; i >= 0; i--) {
@@ -44,7 +44,7 @@ export async function GET() {
 
     // Recent scans for the table
     const recentScans = db
-      .findAll("scans", 10)
+      .findAll<any>("scans", 10)
       .sort((a: any, b: any) => {
         const aDate = a.created_at || a.createdAt || "";
         const bDate = b.created_at || b.createdAt || "";

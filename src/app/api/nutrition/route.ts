@@ -15,9 +15,10 @@ import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { logError } from '@/lib/error-handler';
 import { sanitizeErrorMessage } from '@/lib/utils';
 import { requireCsrf } from '@/lib/csrf';
+import { NUTRITION_CACHE_TTL_MS } from '@/lib/config';
 
 const OFF_SEARCH_URL = 'https://world.openfoodfacts.org/cgi/search.pl';
-const CACHE_TTL = 3600_000; // 1 hour
+const CACHE_TTL = NUTRITION_CACHE_TTL_MS; // 1 hour
 const cache = new Map<string, { data: NutritionResult[]; ts: number }>();
 
 const USER_AGENT = 'MenuLens/1.0';

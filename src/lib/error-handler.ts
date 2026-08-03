@@ -57,6 +57,21 @@ async function checkLocalStorage(): Promise<DiagnosticResult> {
   }
 }
 
+async function checkOllamaDiagnostics(): Promise<DiagnosticResult> {
+  const { checkOllama } = await import('./diagnostics');
+  const result = await checkOllama();
+  return {
+    ok: result.ok,
+    component: 'ollama',
+    message: result.ok
+      ? `Ollama reachable (${result.models.length} models)`
+      : 'Ollama unreachable',
+    error: result.ok ? undefined : result.error,
+    fix: result.ok ? undefined : 'Start Ollama (ollama serve) or set OLLAMA_URL',
+    timestamp: getTimestamp(),
+  };
+}
+
 async function checkAIProviders(): Promise<DiagnosticResult> {
   const results: DiagnosticResult[] = [];
   const providers = [
@@ -201,6 +216,7 @@ export async function runDiagnostics(): Promise<{
     checkLocalStorage(),
     checkFilePermissions(),
     checkAIProviders(),
+    checkOllamaDiagnostics(),
   ]);
 
   const fixes = autoFix(checks);

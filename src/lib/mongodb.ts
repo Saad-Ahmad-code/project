@@ -1,7 +1,14 @@
 /**
  * Local JSON Database — replaces MongoDB
  * Uses eval() to hide Node built-in imports from webpack's static analysis,
- * preventing "Can't resolve 'fs'" errors during client-side bundling.
+ * preventing "Can't resolve 'fs' errors during client-side bundling.
+ *
+ * Performance: each collection keeps an in-memory index (rebuilt whenever
+ * the file changes) so `_id` lookups and equality queries on indexed fields
+ * (scan_id, user_id, status, email) avoid linear scans. The parsed document
+ * array is cached between writes (mtime-checked against the file so external
+ * writers are still picked up). Writes remain full-file atomic rewrites —
+ * unchanged semantics, same durability.
  */
 const _require = eval('require'); // hides require from webpack
 
@@ -24,12 +31,44 @@ try {
   }
 } catch { /* ignore */ }
 
+// ── Index definitions ──
+// Default per-collection indexes. Definitions are persisted to
+// `data/<collection>._indexes.json` on first use, so new indexes can be added
+// without code changes (edit the metadata file, restart, and the in-memory
+// index picks the new fields up on next read). `_id` is always indexed.
+interface IndexDef {
+  field: string;
+  unique?: boolean;
+}
+
+const DEFAULT_INDEXES: Record<string, IndexDef[]> = {
+  users: [{ field: '_id', unique: true }, { field: 'email' }],
+  scans: [{ field: '_id', unique: true }, { field: 'user_id' }, { field: 'id' }],
+  dishes: [{ field: '_id', unique: true }, { field: 'scan_id' }, { field: 'id' }],
+  cache: [{ field: '_id', unique: true }, { field: 'key' }],
+  agent_log: [{ field: '_id', unique: true }, { field: 'scan_id' }, { field: 'status' }],
+  agent_log_dlq: [{ field: '_id', unique: true }, { field: 'scan_id' }, { field: 'job_id' }],
+};
+
+interface CollectionIndexes {
+  /** field → value → array of indices into the data array */
+  byField: Map<string, Map<string, number[]>>;
+  /** true when at least one doc carries an explicit `id` field (disables the
+   *  `{ id } → _id` alias optimization; see _match) */
+  hasExplicitId: boolean;
+}
+
 class LocalCollection {
   private name: string;
+  private indexes: IndexDef[];
+
+  /** Parsed doc array + indexes + file mtime; null = not loaded yet. */
+  private cache: { data: any[]; mtimeMs: number; indexes: CollectionIndexes } | null = null;
 
   constructor(name: string) {
     this.name = name;
     this._ensureFile();
+    this.indexes = this._loadIndexDefs();
   }
 
   private _ensureFile() {
@@ -43,11 +82,80 @@ class LocalCollection {
     return DATA_DIR + '/' + this.name + '.json';
   }
 
-  private _read(): any[] {
+  private _indexesPath(): string {
+    return DATA_DIR + '/' + this.name + '._indexes.json';
+  }
+
+  /** Persisted index definitions — created from defaults on first use. */
+  private _loadIndexDefs(): IndexDef[] {
+    const fs = getFs();
+    const path = this._indexesPath();
+    const defaults = DEFAULT_INDEXES[this.name] || [{ field: '_id', unique: true }];
     try {
-      const content = getFs().readFileSync(this._filePath(), 'utf8');
-      return JSON.parse(content);
-    } catch { return []; }
+      if (fs.existsSync(path)) {
+        const parsed = JSON.parse(fs.readFileSync(path, 'utf8')) as IndexDef[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const seen = new Set(parsed.map(d => d.field));
+          // Merge defaults in case the metadata file predates a new default.
+          for (const d of defaults) if (!seen.has(d.field)) parsed.push(d);
+          return parsed;
+        }
+      }
+    } catch { /* fall through to defaults */ }
+    try {
+      fs.writeFileSync(path, JSON.stringify(defaults, null, 2));
+    } catch { /* non-fatal */ }
+    return defaults;
+  }
+
+  private _buildIndexes(data: any[]): CollectionIndexes {
+    const byField = new Map<string, Map<string, number[]>>();
+    for (const def of this.indexes) {
+      byField.set(def.field, new Map());
+    }
+    let hasExplicitId = false;
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      if (item && typeof item === 'object') {
+        if (item.id !== undefined) hasExplicitId = true;
+        for (const def of this.indexes) {
+          const value = item[def.field];
+          if (value !== undefined && value !== null && typeof value !== 'object') {
+            const map = byField.get(def.field)!;
+            const key = String(value);
+            const bucket = map.get(key);
+            if (bucket) bucket.push(i);
+            else map.set(key, [i]);
+          }
+        }
+      }
+    }
+    return { byField, hasExplicitId };
+  }
+
+  private _read(): any[] {
+    const fs = getFs();
+    const filePath = this._filePath();
+    try {
+      const stat = fs.statSync(filePath);
+      if (this.cache && this.cache.mtimeMs === stat.mtimeMs) {
+        return this.cache.data;
+      }
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      this.cache = { data, mtimeMs: stat.mtimeMs, indexes: this._buildIndexes(data) };
+      return data;
+    } catch {
+      this.cache = { data: [], mtimeMs: 0, indexes: this._buildIndexes([]) };
+      return [];
+    }
+  }
+
+  /** After an in-memory mutation, keep the cache in sync (no re-read needed). */
+  private _syncCache(data: any[]) {
+    const fs = getFs();
+    let mtimeMs = 0;
+    try { mtimeMs = fs.statSync(this._filePath()).mtimeMs; } catch { /* ignore */ }
+    this.cache = { data, mtimeMs, indexes: this._buildIndexes(data) };
   }
 
   /**
@@ -62,6 +170,7 @@ class LocalCollection {
     const tmpPath = filePath + '.tmp.' + Date.now();
     fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
     fs.renameSync(tmpPath, filePath);
+    this._syncCache(data);
   }
 
   private _id() { return getCrypto().randomUUID(); }
@@ -94,7 +203,45 @@ class LocalCollection {
     return true;
   }
 
-  find(query = {}) { return this._read().filter(item => this._match(item, query)); }
+  /**
+   * Returns candidate indices for an exact-equality query on an indexed
+   * field, or null when the query can't use an index (full scan needed).
+   * `{ id: X }` resolves to the `_id` index — docs are persisted with `_id`
+   * only (AGENTS.md rule 5); the optimization is disabled if any doc carries
+   * an explicit `id` field so _match semantics stay exact.
+   */
+  private _indexCandidates(query: any, cache: CollectionIndexes): number[] | null {
+    if (!query) return null;
+    const keys = Object.keys(query);
+    if (keys.length !== 1) return null;
+    const [key, value] = [keys[0], query[keys[0]]];
+    if (value === null || typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+      return null;
+    }
+    let field = key;
+    if (key === 'id') {
+      if (cache.hasExplicitId) return null;
+      field = '_id';
+    }
+    const map = cache.byField.get(field);
+    if (!map) return null;
+    const hit = map.get(String(value));
+    return hit ? [...hit] : [];
+  }
+
+  find(query = {}) {
+    const data = this._read();
+    const candidates = this._indexCandidates(query, this.cache!.indexes);
+    if (candidates === null) {
+      return data.filter(item => this._match(item, query));
+    }
+    // Index narrowed the search; _match still validates each candidate so
+    // semantics are identical to a full scan.
+    return candidates
+      .map(i => data[i])
+      .filter(item => item !== undefined && this._match(item, query));
+  }
+
   findOne(query = {}) { return this.find(query)[0] || null; }
 
   insertOne(doc: any) {
@@ -122,7 +269,10 @@ class LocalCollection {
 
   updateOne(query: any, update: any) {
     const data = this._read();
-    const idx = data.findIndex(item => this._match(item, query));
+    const candidates = this._indexCandidates(query, this.cache!.indexes);
+    const idx = candidates === null
+      ? data.findIndex(item => this._match(item, query))
+      : candidates.find(i => this._match(data[i], query)) ?? -1;
     if (idx === -1) return { matchedCount: 0, modifiedCount: 0 };
     const $set = update.$set || update;
     data[idx] = { ...data[idx], ...$set, updated_at: new Date().toISOString() };
@@ -217,7 +367,7 @@ export function db(name: string) {
 }
 
 export async function connectToDatabase() {
-  ['users', 'scans', 'dishes', 'cache', 'agent_log'].forEach(name => db(name));
+  ['users', 'scans', 'dishes', 'cache', 'agent_log', 'agent_log_dlq'].forEach(name => db(name));
   return { db };
 }
 

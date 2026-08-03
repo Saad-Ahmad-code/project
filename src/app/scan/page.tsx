@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { useScan, LocalOCRItem } from "@/hooks/useScan";
 import { useCsrf } from "@/hooks/useCsrf";
@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { CameraCapture } from "@/components/CameraCapture";
+import { SuggestionPanel } from "@/components/SuggestionPanel";
 
 export default function ScanPage() {
   const router = useRouter();
@@ -308,100 +309,14 @@ export default function ScanPage() {
             </Button>
           </div>
 
-          {/* AI Food Expert Button */}
-          {!suggestionsLoading && !showSuggestions && (
-            <Button
-              onClick={getSuggestions}
-              className="w-full mb-6 font-bold bg-gradient-to-br from-emerald-600 to-emerald-700"
-            >
-              Ask AI Food Expert
-            </Button>
-          )}
-
-          {suggestionsLoading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mb-6 p-4 bg-surface rounded-lg text-center"
-            >
-              <Progress value={60} className="h-1.5 mb-2" />
-              <p className="text-sm text-muted-foreground">AI Food Expert is analyzing your menu...</p>
-            </motion.div>
-          )}
-
-          {suggestionsError && !suggestionsLoading && (
-            <div className="mb-4 p-3 rounded-lg bg-red-950 border border-red-800 text-red-400 text-sm">
-              {suggestionsError}
-            </div>
-          )}
-
-          {/* AI Food Expert Suggestions Panel */}
-          <AnimatePresence>
-            {showSuggestions && suggestions && (
-              <motion.div
-                key="suggestions"
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="mb-6 rounded-xl p-5 border border-primary overflow-hidden bg-gradient-to-br from-emerald-900 to-emerald-800"
-              >
-                <div className="flex justify-between items-center mb-3">
-                  <h2 className="text-lg font-semibold text-white">AI Food Expert</h2>
-                  <button onClick={() => setShowSuggestions(false)} className="text-sm text-muted-foreground bg-transparent border-none cursor-pointer">Hide</button>
-                </div>
-
-                {suggestions.overview && (
-                  <p className="text-emerald-100 text-sm mb-4 leading-relaxed">{suggestions.overview}</p>
-                )}
-
-                {suggestions.must_try && (
-                  <div className="bg-white/10 rounded-lg p-3 mb-4">
-                    <span className="text-amber-300 font-bold text-xs block mb-1">MUST TRY</span>
-                    <span className="text-white text-lg font-bold">{suggestions.must_try}</span>
-                  </div>
-                )}
-
-                {suggestions.top_picks && suggestions.top_picks.length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-emerald-200 font-bold mb-2 text-sm">TOP PICKS</p>
-                    {suggestions.top_picks.map((pick: any, i: number) => (
-                      <div key={i} className="bg-white/5 rounded-md p-3 mb-1.5">
-                        <p className="text-white font-bold text-sm mb-0.5">{pick.name}</p>
-                        <p className="text-emerald-100 text-xs mb-0.5">{pick.reason}</p>
-                        {pick.pairing && <p className="text-amber-300 text-xs">{pick.pairing}</p>}
-                        {pick.allergens && pick.allergens.length > 0 && (
-                          <div className="flex gap-1 mt-1 flex-wrap">
-                            {pick.allergens.map((a: string) => (
-                              <span key={a} className="text-[0.65rem] px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-800">
-                                {a}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {suggestions.tips && suggestions.tips.length > 0 && (
-                  <div>
-                    <p className="text-emerald-200 font-bold mb-2 text-sm">TIPS</p>
-                    {suggestions.tips.map((tip: string, i: number) => (
-                      <p key={i} className="text-emerald-100 text-xs mb-1 pl-4">&bull; {tip}</p>
-                    ))}
-                  </div>
-                )}
-
-                <button
-                  onClick={getSuggestions}
-                  className="mt-3 w-full py-2 rounded-md bg-white/10 text-emerald-100 border border-primary text-xs cursor-pointer"
-                >
-                  Regenerate Suggestions
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* AI Food Expert */}
+          <SuggestionPanel
+            suggestions={suggestions}
+            loading={suggestionsLoading}
+            error={suggestionsError}
+            onRegenerate={getSuggestions}
+            onHide={() => setShowSuggestions(false)}
+          />
 
           {/* Translation */}
           <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-surface border border-border">

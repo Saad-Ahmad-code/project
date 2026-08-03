@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth/options';
-import { getQueueStats, getNextJob, processJob, updateJob } from '@/lib/agent/queue';
+import { getQueueStats, getNextJob, processJob, updateJob, retryJob } from '@/lib/agent/queue';
 import { checkDatabaseConnection } from '@/lib/diagnostics';
 
 async function requireAdmin(): Promise<boolean> {
@@ -77,6 +77,18 @@ export async function POST(request: NextRequest) {
         scan_id: job.scan_id,
         items_count: job.items_count,
       });
+    }
+
+    if (action === 'retry') {
+      const jobIdToRetry = body.jobId || body.job_id;
+      if (!jobIdToRetry || typeof jobIdToRetry !== 'string') {
+        return NextResponse.json({ error: 'jobId required for retry action' }, { status: 400 });
+      }
+      const result = retryJob(jobIdToRetry);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.message }, { status: 400 });
+      }
+      return NextResponse.json({ message: result.message, retried: true, job_id: jobIdToRetry });
     }
 
     if (action === 'clear-failed') {

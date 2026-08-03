@@ -15,5 +15,19 @@ export async function register() {
   if (process.env.NEXT_PHASE !== 'phase-production-build') {
     const { startWorker } = await require('./lib/agent/queue');
     startWorker();
+
+    // Log Ollama availability at startup (models installed, unreachable, etc.)
+    // so it's visible in server logs without hitting the diagnostics endpoint.
+    try {
+      const { checkOllama } = await require('./lib/diagnostics');
+      const ollama = await checkOllama();
+      if (ollama.ok) {
+        console.log(`MenuLens: Ollama reachable (${ollama.models.length} models: ${ollama.models.join(', ')})`);
+      } else {
+        console.warn(`MenuLens: Ollama unreachable (${ollama.error}) — OCR will skip local LLM refine/vision`);
+      }
+    } catch (err) {
+      console.warn(`MenuLens: Ollama startup probe failed: ${String(err)}`);
+    }
   }
 }

@@ -3,7 +3,7 @@
  * (with timeouts), filters non-food results, scores, and ranks them.
  */
 import { logger } from "@/lib/logger";
-import { NON_FOOD_KEYWORDS, FOOD_PATTERNS } from "@/lib/images/keywords";
+import { NON_FOOD_KEYWORDS, FOOD_EXCLUSION_KEYWORDS, FOOD_PATTERNS } from "@/lib/images/keywords";
 import { searchUnsplash } from "@/lib/images/unsplash";
 import { searchPexels } from "@/lib/images/pexels";
 import { searchBing } from "@/lib/images/bing";
@@ -35,15 +35,59 @@ function isValidImageUrl(url: string): boolean {
   }
 }
 
+/**
+ * Split a URL into path segments (descriptive, e.g. /photos/grilled-salmon)
+ * and query params (boilerplate, e.g. ?query=grilled+salmon&w=800). Query
+ * params are weaker signals: they usually echo the search terms (and often
+ * the auto-generated alt text) rather than describing the actual image.
+ */
+function splitUrlParts(url: string): { path: string; query: string } {
+  try {
+    const parsed = new URL(url);
+    return { path: parsed.pathname, query: parsed.search };
+  } catch {
+    return { path: url, query: "" };
+  }
+}
+
+/** Penalize extreme aspect ratios (banner/hero 16:9, vertical posters) —
+ *  dish photos are typically ~4:3, 3:4, or square. Returns 0 when the URL
+ *  doesn't carry dimensions (no penalty applied by caller). */
+function aspectRatioPenalty(url: string): number {
+  try {
+    const parsed = new URL(url);
+    const w = parseInt(parsed.searchParams.get("w") || parsed.searchParams.get("width") || "", 10);
+    const h = parseInt(parsed.searchParams.get("h") || parsed.searchParams.get("height") || "", 10);
+    if (!w || !h) return 0;
+    const ratio = w / h;
+    if (ratio > 2.1 || ratio < 0.45) return 15; // banner/hero or tall poster
+    if (ratio > 1.8 || ratio < 0.55) return 8; // noticeably wide/tall
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 function isFoodImage(url: string, query: string): boolean {
   const lower = `${url} ${query}`.toLowerCase();
   const nonFoodHits = [...NON_FOOD_KEYWORDS].filter((kw) => lower.includes(kw)).length;
-  return nonFoodHits < 3;
+  if (nonFoodHits >= 3) return false;
+  // A food-exclusion term (cooking/ingredients/plating/hands) outweighs a
+  // single non-food hit: these are food-adjacent but not a finished dish.
+  // Word-boundary match — "cook" must not hit "cookies", "hand" not
+  // "handcrafted" (which is a food keyword).
+  const exclusionHits = [...FOOD_EXCLUSION_KEYWORDS].filter((kw) =>
+    new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(lower)
+  ).length;
+  if (exclusionHits > 0) return false;
+  return true;
 }
 
 function scoreImage(url: string, query: string): number {
   let score = 50;
   const lower = `${url} ${query}`.toLowerCase();
+  const { path, query: queryPart } = splitUrlParts(url);
+  const pathLower = path.toLowerCase();
 
   const nonFoodHits = [...NON_FOOD_KEYWORDS].filter((kw) => lower.includes(kw)).length;
   score -= nonFoodHits * 15;
@@ -52,9 +96,19 @@ function scoreImage(url: string, query: string): number {
   score += foodPatternHits * 10;
 
   const queryWords = query.toLowerCase().split(/\s+/);
-  const urlWords = url.toLowerCase().split(/[/\-_]+/);
-  const overlap = queryWords.filter((w) => urlWords.some((uw) => uw.includes(w) || w.includes(uw))).length;
-  if (overlap === 0) score -= 20;
+  const pathWords = pathLower.split(/[/\-_]+/);
+  // URL-path segments are descriptive ("/grilled-salmon.jpg") — weight them
+  // MORE than query params, which echo the search query by construction.
+  const pathOverlap = queryWords.filter((w) => pathWords.some((uw) => uw.includes(w) || w.includes(uw))).length;
+  score += pathOverlap * 6;
+
+  const queryWordsUrl = queryPart.toLowerCase().split(/[?&=+/\-_]+/);
+  const queryOverlap = queryWords.filter((w) => queryWordsUrl.some((uw) => uw.includes(w) || w.includes(uw))).length;
+  score += queryOverlap * 2;
+
+  if (pathOverlap === 0 && queryOverlap === 0) score -= 20;
+
+  score -= aspectRatioPenalty(url);
 
   return Math.max(0, Math.min(100, score));
 }
