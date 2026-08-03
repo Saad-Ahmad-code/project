@@ -17,11 +17,60 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes, timingSafeEqual as _timingSafeEqual } from "crypto";
+import { logger } from "@/lib/logger";
 
 const CSRF_COOKIE = "csrf_secret";
 const CSRF_HEADER = "x-csrf-token";
-// In production this should be in .env.local
-const CSRF_SECRET = process.env.CSRF_SECRET || "menulens-csrf-dev-key-change-in-prod";
+const CSRF_SECRET_FILE = "data/csrf-secret.txt";
+
+function getRequire() { return eval('require'); }
+
+let runtimeCsrfSecret: string | null = null;
+
+function loadCsrfSecret(): string {
+  if (runtimeCsrfSecret) return runtimeCsrfSecret;
+
+  const envSecret = process.env.CSRF_SECRET;
+  if (envSecret && envSecret !== "menulens-csrf-dev-key-change-in-prod") {
+    runtimeCsrfSecret = envSecret;
+    return runtimeCsrfSecret;
+  }
+
+  try {
+    const fs = getRequire()('fs');
+    if (fs.existsSync(CSRF_SECRET_FILE)) {
+      const content = fs.readFileSync(CSRF_SECRET_FILE, 'utf8').trim();
+      if (content) {
+        runtimeCsrfSecret = content;
+        if (process.env.NODE_ENV === 'production') {
+          logger.warn('CSRF_SECRET loaded from persisted file — set CSRF_SECRET env var for explicit control');
+        }
+        return content;
+      }
+    }
+  } catch (err: any) {
+    logger.warn(`Failed to read persisted CSRF secret: ${err.message}`);
+  }
+
+  const generated = randomBytes(32).toString("hex");
+  runtimeCsrfSecret = generated;
+  if (envSecret === "menulens-csrf-dev-key-change-in-prod" || !envSecret) {
+    logger.warn(`CSRF_SECRET not set — generated ephemeral secret. Set CSRF_SECRET in .env.local for persistence across restarts`);
+  }
+
+  try {
+    const fs = getRequire()('fs');
+    fs.mkdirSync('data', { recursive: true });
+    fs.writeFileSync(CSRF_SECRET_FILE, generated);
+    if (process.env.NODE_ENV === 'production') {
+      logger.info('CSRF_SECRET generated and persisted to data/csrf-secret.txt');
+    }
+  } catch (err: any) {
+    logger.warn(`Could not persist CSRF secret to disk: ${err.message}`);
+  }
+
+  return generated;
+}
 
 /**
  * Generate a CSRF token pair and set the secret cookie.
@@ -38,7 +87,7 @@ export function generateCsrfToken(): { secret: string; token: string } {
  * endpoint so repeated fetches never rotate the secret under the client.
  */
 export function deriveCsrfToken(secret: string): string {
-  return createHmac("sha256", CSRF_SECRET).update(secret).digest("hex");
+  return createHmac("sha256", loadCsrfSecret()).update(secret).digest("hex");
 }
 
 /**

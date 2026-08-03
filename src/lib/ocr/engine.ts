@@ -176,7 +176,7 @@ async function layer3AIVision(
   imageBuffer: ArrayBuffer,
   send: ProgressCallback
 ): Promise<OCRResult | null> {
-  send('status', { status: 'ocr_layer4', progress: 65, message: 'Layer 4: AI Vision analysis...' });
+  send('status', { status: 'ocr_layer3', progress: 65, message: 'Layer 3: AI Vision analysis...' });
 
   const visionPrompt = `Extract all menu items from this restaurant menu image. Return ONLY valid JSON:
 {"menu_name":"restaurant name if visible","items":[{"name":"dish name","description":"brief description if available","price":12.99,"category":"appetizer|entree|dessert|drink|side|soup|salad|other"}]}
@@ -205,7 +205,7 @@ Rules:
 
       if (items.length === 0) return null;
 
-      logger.info(`[OCR] Layer 4: ${items.length} items from AI Vision`);
+      logger.info(`[OCR] Layer 3: ${items.length} items from AI Vision`);
       return {
         items,
         raw_text: '',
@@ -217,7 +217,7 @@ Rules:
       return null;
     }
   } catch (err: any) {
-    logger.warn(`[OCR] Layer 4 failed: ${err.message?.slice(0, 100)}`);
+    logger.warn(`[OCR] Layer 3 failed: ${err.message?.slice(0, 100)}`);
     return null;
   }
 }
