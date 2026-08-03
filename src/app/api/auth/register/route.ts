@@ -3,9 +3,13 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import { requireCsrf } from "@/lib/csrf";
 
 export async function POST(request: NextRequest) {
   try {
+    const csrfError = requireCsrf(request);
+    if (csrfError) return csrfError;
+
     const { email, password, name } = await request.json();
 
     if (!email || !password) {

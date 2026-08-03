@@ -11,6 +11,7 @@ import { RecipePanel } from "@/components/RecipePanel";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { useCsrf } from "@/hooks/useCsrf";
 import type { MenuItem } from "@/types/menu";
 
 interface FoodExpertSuggestion {
@@ -22,6 +23,7 @@ interface FoodExpertSuggestion {
 
 export default function ResultsPage() {
   const params = useParams();
+  const csrfToken = useCsrf();
   const [scan, setScan] = useState<{ id: string; status: string; items_count: number; agent_summary?: string } | null>(null);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,7 +75,10 @@ export default function ResultsPage() {
     setSuggestionsError(null);
     setSuggestions(null);
     try {
-      const res = await fetch(`/api/scan/${encodeURIComponent(params.id as string)}`, { method: "POST" });
+      const res = await fetch(`/api/scan/${encodeURIComponent(params.id as string)}`, {
+        method: "POST",
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : {},
+      });
       const data = await res.json();
       if (data.error) {
         setSuggestionsError(data.error);

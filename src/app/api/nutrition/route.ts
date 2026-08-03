@@ -14,6 +14,7 @@ import { logger } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { logError } from '@/lib/error-handler';
 import { sanitizeErrorMessage } from '@/lib/utils';
+import { requireCsrf } from '@/lib/csrf';
 
 const OFF_SEARCH_URL = 'https://world.openfoodfacts.org/cgi/search.pl';
 const CACHE_TTL = 3600_000; // 1 hour
@@ -187,6 +188,9 @@ function stripFoodDescription(name: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const csrfError = requireCsrf(request);
+    if (csrfError) return csrfError;
+
     if (!checkRateLimit(getClientIp(request))) {
       return NextResponse.json({ results: [], error: 'Too many requests. Wait a minute and try again.' }, { status: 429 });
     }

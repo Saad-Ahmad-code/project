@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/mongodb";
 import { chatCompletions } from "@/lib/ai/client";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { logError } from "@/lib/error-handler";
+import { sanitizeErrorMessage } from "@/lib/utils";
+import { requireCsrf } from "@/lib/csrf";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -21,8 +25,15 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
  * POST /api/scan/[id] — AI Food Expert Suggestions
  * Takes the scanned dishes and returns Groq-powered food recommendations
  */
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const csrfError = requireCsrf(request);
+    if (csrfError) return csrfError;
+
+    if (!checkRateLimit(getClientIp(request))) {
+      return NextResponse.json({ error: "Too many requests. Wait a minute and try again." }, { status: 429 });
+    }
+
     const { id } = await params;
     const database = await getDatabase();
     const items = await database.collection("dishes").find({ scan_id: id }).toArray();
@@ -70,6 +81,7 @@ Return ONLY this JSON structure (no markdown):
       return NextResponse.json({ suggestions: null, raw: content });
     }
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to get suggestions" }, { status: 500 });
+    logError(err, { endpoint: "/api/scan/[id]/POST" });
+    return NextResponse.json({ error: sanitizeErrorMessage(err), suggestions: null, raw: "" }, { status: 500 });
   }
 }

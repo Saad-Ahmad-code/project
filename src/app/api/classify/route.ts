@@ -16,6 +16,7 @@ import { logger } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { logError } from '@/lib/error-handler';
 import { sanitizeErrorMessage } from '@/lib/utils';
+import { requireCsrf } from '@/lib/csrf';
 
 const PYTHON = path.resolve(process.cwd(), '.venv/Scripts/python.exe');
 const SCRIPT = path.resolve(process.cwd(), 'src/scripts/food_classifier.py');
@@ -23,6 +24,9 @@ const TMP_DIR = path.resolve(process.cwd(), '.tmp');
 
 export async function POST(request: NextRequest) {
   try {
+    const csrfError = requireCsrf(request);
+    if (csrfError) return csrfError;
+
     if (!checkRateLimit(getClientIp(request))) {
       return Response.json({ error: 'Too many requests. Wait a minute and try again.', dishes: [] }, { status: 429 });
     }

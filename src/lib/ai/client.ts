@@ -222,6 +222,56 @@ async function pythonOCR(imageBuffer: ArrayBuffer): Promise<string> {
   }
 }
 
+// ── Circuit breaker ──
+// Tracks per-key failures. After CONSECUTIVE_FAILURES failures (default 3),
+// the key's circuit opens for COOLDOWN_MS (default 60s): the provider is
+// skipped entirely instead of burning a 30s timeout per attempt. After the
+// cooldown, a single trial (half-open) decides whether to close the circuit
+// (success) or reopen it (another failure). Keys are shared across models
+// (all OpenRouter models use OPENROUTER_API_KEY), so the breaker is keyed
+// by apiKeyEnv — one dead key skips all of its models at once.
+const CONSECUTIVE_FAILURES = 3;
+const COOLDOWN_MS = 60_000;
+
+interface CircuitState {
+  failures: number;
+  openedAt: number;
+  /** true = skip all calls; false = allow (closed or half-open trial) */
+  open: boolean;
+}
+
+const circuitStore = new Map<string, CircuitState>();
+
+function circuitOpen(apiKeyEnv: string): boolean {
+  const state = circuitStore.get(apiKeyEnv);
+  if (!state || !state.open) return false;
+  // Cooldown elapsed → half-open: allow one trial call.
+  if (Date.now() - state.openedAt >= COOLDOWN_MS) return false;
+  return true;
+}
+
+function circuitRecordFailure(apiKeyEnv: string): void {
+  const state = circuitStore.get(apiKeyEnv) || { failures: 0, openedAt: 0, open: false };
+  state.failures += 1;
+  if (state.failures >= CONSECUTIVE_FAILURES) {
+    state.open = true;
+    state.openedAt = Date.now();
+    logger.warn(`[AI] Circuit breaker OPENED for ${apiKeyEnv} (${state.failures} consecutive failures)`);
+  }
+  circuitStore.set(apiKeyEnv, state);
+}
+
+function circuitRecordSuccess(apiKeyEnv: string): void {
+  const state = circuitStore.get(apiKeyEnv);
+  if (!state) return;
+  if (state.open) {
+    logger.info(`[AI] Circuit breaker CLOSED for ${apiKeyEnv} after cooldown`);
+  }
+  state.failures = 0;
+  state.open = false;
+  circuitStore.set(apiKeyEnv, state);
+}
+
 // ── Call a single AI provider ──
 // Retries on transient failures (5xx, 429, network errors) with exponential
 // backoff. Non-retryable errors (401, 404) fail immediately.

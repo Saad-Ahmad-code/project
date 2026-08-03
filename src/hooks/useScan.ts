@@ -100,11 +100,17 @@ export function useScan() {
     const form = new FormData();
     form.append("image", file);
 
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || sessionStorage.getItem("csrf_token");
+
     try {
-      const res = await fetch("/api/scan/new", { method: "POST", body: form });
+      const res = await fetch("/api/scan/new", {
+        method: "POST",
+        body: form,
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : {},
+      });
       if (!res.ok) {
         const text = await res.text();
-        const sseMatch = text.match(/data:\s*(\{[\s\S]*?\})/);
+                const sseMatch = text.match(/data:\s*(\{[\s\S]*?\})/);
         if (sseMatch) {
           try {
             const parsed = JSON.parse(sseMatch[1]);
@@ -139,24 +145,30 @@ export function useScan() {
       const form = new FormData();
       form.append("image", file);
 
-      const res = await fetch("/api/scan/new?mode=offline", { method: "POST", body: form });
-      if (!res.ok) {
-        const text = await res.text();
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || sessionStorage.getItem("csrf_token");
+
+      const localRes = await fetch("/api/scan/new?mode=offline", {
+        method: "POST",
+        body: form,
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : {},
+      });
+      if (!localRes.ok) {
+        const text = await localRes.text();
         const sseMatch = text.match(/data:\s*(\{[\s\S]*?\})/);
         if (sseMatch) {
           try {
             const parsed = JSON.parse(sseMatch[1]);
-            throw new Error(parsed.message || `HTTP ${res.status}`);
+            throw new Error(parsed.message || `HTTP ${localRes.status}`);
           } catch (e) {
             if (e instanceof Error) throw e;
           }
         }
-        throw new Error(`HTTP ${res.status}`);
+        throw new Error(`HTTP ${localRes.status}`);
       }
 
       setProgress(50);
       setStatus("scanning");
-      await processSSEStream(res, handleError, handleStatus, (data) => {
+      await processSSEStream(localRes, handleError, handleStatus, (data) => {
         handleComplete(data, data?.menu_name || "Local Scan Result");
       }, 120000);
     } catch (err) {

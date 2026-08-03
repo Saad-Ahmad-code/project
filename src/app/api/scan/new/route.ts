@@ -17,6 +17,7 @@ import { enqueueAndProcessInBackground } from '@/lib/agent/queue';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { logError } from '@/lib/error-handler';
 import { sanitizeErrorMessage } from '@/lib/utils';
+import { requireCsrf } from '@/lib/csrf';
 import type { MenuItem } from '@/types/menu';
 import type { OCRItem } from '@/lib/ocr/engine';
 
@@ -33,6 +34,16 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const ip = getClientIp(request);
+
+    // CSRF validation — requires the X-CSRF-Token header to match the
+    // csrf_secret cookie (generated via /api/csrf/token on page load).
+    const csrfError = requireCsrf(request);
+    if (csrfError) {
+      return new Response(sseEncode('error', { message: 'Invalid or missing CSRF token' }), {
+        status: 403,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    }
 
     if (!checkRateLimit(ip)) {
       return new Response(sseEncode('error', { message: 'Too many scans. Wait a minute and try again.' }), {

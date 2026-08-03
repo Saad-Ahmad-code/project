@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useScan, LocalOCRItem } from "@/hooks/useScan";
+import { useCsrf } from "@/hooks/useCsrf";
+import { compressImage } from "@/lib/image-compress";
 import { DishCard } from "@/components/dishes/DishCard";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,7 @@ export default function ScanPage() {
     startLocalScan,
     reset,
   } = useScan();
+  const csrfToken = useCsrf();
 
   // AI Food Expert state
   const [suggestions, setSuggestions] = useState<any>(null);
@@ -78,7 +81,7 @@ export default function ScanPage() {
     try {
       const res = await fetch("/api/suggest", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": csrfToken } : {}) },
         body: JSON.stringify({ dishes: localItems.map((i) => i.name) }),
       });
       const data = await res.json();
@@ -105,21 +108,29 @@ export default function ScanPage() {
     reset();
   }, [reset, preview]);
 
+  // Compress (if beneficial) then start the scan — keeps uploads small
+  // and server-side OCR fast. Original file is kept for the preview.
+  const startScanCompressed = useCallback(async (file: File, mode: "ai" | "offline") => {
+    const toSend = await compressImage(file);
+    if (mode === "ai") await startScan(toSend);
+    else await startLocalScan(toSend);
+  }, [startScan, startLocalScan]);
+
+  const handleScan = async () => {
+    if (!image) return;
+    await startScanCompressed(image, "ai");
+  };
+
+  const handleLocalScan = async () => {
+    if (!image) return;
+    await startScanCompressed(image, "offline");
+  };
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
   }, [handleFile]);
-
-  const handleScan = async () => {
-    if (!image) return;
-    await startScan(image);
-  };
-
-  const handleLocalScan = async () => {
-    if (!image) return;
-    await startLocalScan(image);
-  };
 
   const handleScanAnother = () => {
     if (preview) URL.revokeObjectURL(preview);
@@ -147,7 +158,7 @@ export default function ScanPage() {
       const menuText = localItems.map((item) => `${item.name} - $${item.price?.toFixed(2) || 'N/A'}${item.description ? `: ${item.description}` : ''}`).join('\n');
       const res = await fetch("/api/translate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": csrfToken } : {}) },
         body: JSON.stringify({ text: menuText, target_language: targetLang }),
       });
       const data = await res.json();
@@ -172,7 +183,7 @@ export default function ScanPage() {
     try {
       const res = await fetch("/api/nutrition", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(csrfToken ? { "x-csrf-token": csrfToken } : {}) },
         body: JSON.stringify({ barcode }),
       });
       const data = await res.json();

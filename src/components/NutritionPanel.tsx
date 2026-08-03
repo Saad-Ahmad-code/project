@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { NutritionResult } from "@/app/api/nutrition/route";
 import { getCached, setCache } from "@/lib/fetch-cache";
+import { getCsrfToken } from "@/hooks/useCsrf";
 
 interface NutritionPanelProps {
   dishName: string;
@@ -28,7 +29,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
     try {
       const res = await fetch("/api/nutrition", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(getCsrfToken() ? { "x-csrf-token": getCsrfToken()! } : {}) },
         body: JSON.stringify({ dish_name: dishName }),
       });
       const data = await res.json();
