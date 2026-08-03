@@ -75,6 +75,7 @@ export function RecipePanel({ dishName }: RecipePanelProps) {
                 <img
                   src={recipe.image_url}
                   alt={recipe.name}
+                  loading="lazy"
                   className="w-full max-h-[300px] object-cover rounded-lg mb-4"
                 />
               )}

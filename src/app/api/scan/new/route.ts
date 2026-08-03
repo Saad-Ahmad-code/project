@@ -15,6 +15,8 @@ import { db, storage } from '@/lib/storage';
 import { db as mongodb } from '@/lib/mongodb';
 import { enqueueAndProcessInBackground } from '@/lib/agent/queue';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { logError } from '@/lib/error-handler';
+import { sanitizeErrorMessage } from '@/lib/utils';
 import type { MenuItem } from '@/types/menu';
 import type { OCRItem } from '@/lib/ocr/engine';
 
@@ -179,7 +181,8 @@ const send = (event: string, data: unknown) => {
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : 'Failed to process menu';
           logger.error({ message, error: String(error) });
-          try { send('error', { message }); } catch (e) { logger.warn(`[Scan] SSE send failed: ${e}`); }
+          logError(error, { endpoint: '/api/scan/new/stream', ip });
+          try { send('error', { message: sanitizeErrorMessage(error) }); } catch (e) { logger.warn(`[Scan] SSE send failed: ${e}`); }
 } finally {
            try { controller.close(); } catch (e) { logger.warn(`[Scan] Controller close failed: ${e}`); }
          }
@@ -196,7 +199,8 @@ const send = (event: string, data: unknown) => {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to process menu';
     logger.error({ message, error: String(error) });
-    return new Response(sseEncode('error', { message }), {
+    logError(error, { endpoint: '/api/scan/new' });
+    return new Response(sseEncode('error', { message: sanitizeErrorMessage(error) }), {
       status: 500,
       headers: { 'Content-Type': 'text/event-stream' },
     });

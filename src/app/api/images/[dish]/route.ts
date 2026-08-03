@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchDishImages } from "@/lib/images";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { logError } from "@/lib/error-handler";
+import { sanitizeErrorMessage } from "@/lib/utils";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ dish: string }> }) {
   try {
@@ -18,7 +20,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const images = await searchDishImages(decoded);
     return NextResponse.json({ images });
   } catch (err: any) {
-    return NextResponse.json({ images: [], error: err.message || "Image search failed" }, { status: 500 });
+    logError(err, { endpoint: "/api/images/[dish]/GET" });
+    return NextResponse.json({ images: [], error: sanitizeErrorMessage(err) }, { status: 500 });
   }
 }
 
@@ -40,6 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const images = await searchDishImages(query);
     return NextResponse.json({ images });
   } catch (err: any) {
-    return NextResponse.json({ images: [], error: err.message || "Image search failed" }, { status: 500 });
+    logError(err, { endpoint: "/api/images/[dish]/POST" });
+    return NextResponse.json({ images: [], error: sanitizeErrorMessage(err) }, { status: 500 });
   }
 }

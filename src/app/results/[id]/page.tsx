@@ -332,7 +332,7 @@ export default function ResultsPage() {
                   <img key="primary" src={selectedDish.image_url} alt={selectedDish.name} className="w-full rounded-lg" />
                 )}
                 {moreImages.map((img) => (
-                  <img key={img.url} src={img.url} alt={selectedDish.name} className="w-full rounded-lg" />
+                  <img key={img.url} src={img.url} alt={selectedDish.name} loading="lazy" className="w-full rounded-lg" />
                 ))}
               </div>
 

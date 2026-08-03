@@ -3,7 +3,6 @@
  * Uses eval() to hide Node built-in imports from webpack's static analysis,
  * preventing "Can't resolve 'fs'" errors during client-side bundling.
  */
-
 const _require = eval('require'); // hides require from webpack
 
 function getFs() { return _require('fs'); }
@@ -11,6 +10,19 @@ function getPath() { return _require('path'); }
 function getCrypto() { return _require('crypto'); }
 
 const DATA_DIR = process.cwd() + '/data';
+
+// Clean up stale temp files from any previous crash (leftovers from atomicWrite's
+// temp-file-then-rename pattern if the process was killed mid-write).
+try {
+  const fs = getFs();
+  if (fs.existsSync(DATA_DIR)) {
+    for (const file of fs.readdirSync(DATA_DIR)) {
+      if (file.endsWith('.tmp') || /\.tmp\.\d+$/.test(file)) {
+        fs.unlinkSync(DATA_DIR + '/' + file);
+      }
+    }
+  }
+} catch { /* ignore */ }
 
 class LocalCollection {
   private name: string;
@@ -38,8 +50,18 @@ class LocalCollection {
     } catch { return []; }
   }
 
+  /**
+   * Atomic write — writes to a temp file first, then renames it to the target
+   * path. On all POSIX and Windows platforms, `rename` is atomic, so a crash
+   * mid-write never leaves a corrupted JSON file (the old file is either
+   * fully replaced or untouched).
+   */
   private _write(data: any[]) {
-    getFs().writeFileSync(this._filePath(), JSON.stringify(data, null, 2));
+    const fs = getFs();
+    const filePath = this._filePath();
+    const tmpPath = filePath + '.tmp.' + Date.now();
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+    fs.renameSync(tmpPath, filePath);
   }
 
   private _id() { return getCrypto().randomUUID(); }

@@ -1,5 +1,7 @@
 # MenuLens 🍽️
 
+![CI](https://github.com/Saad-Ahmad-code/project/actions/workflows/ci.yml/badge.svg)
+
 Scan a restaurant menu photo and get structured, AI-enriched dish data — descriptions,
 images, nutrition, translations, and side-by-side comparisons.
 

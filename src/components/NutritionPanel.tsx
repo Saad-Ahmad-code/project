@@ -74,6 +74,7 @@ export function NutritionPanel({ dishName }: NutritionPanelProps) {
                   <img
                     src={r.image_url}
                     alt={r.name}
+                    loading="lazy"
                     className="float-right w-[50px] h-[50px] rounded object-cover"
                   />
                 )}

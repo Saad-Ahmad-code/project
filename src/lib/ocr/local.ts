@@ -405,7 +405,7 @@ function isFoodRelated(word: string): boolean {
     /^(gruyère|manchego|pecorino|asiago|colby|monterey)$/.test(w) ||
     /^(artichoke|asparagus|endive|radicchio|arugula|kale)$/.test(w) ||
     /^(brussels|spinach|chard|collard|turnip|parsnip)$/.test(w) ||
-    /^(horseradish|wasabi|ginger|turmeric|saffron)$/.test(w) ||
+    /^(horseradish|ginger|turmeric|saffron)$/.test(w) ||
     /^(cardamom|cinnamon|clove|nutmeg|allspice|star\s*anise)$/.test(w) ||
     /^(coriander|cumin|fennel|fenugreek|mustard|sesame)$/.test(w) ||
     /^(poppy|caraway|celery|dill|tarragon|marjoram|savory)$/.test(w) ||
@@ -494,7 +494,6 @@ const OCR_CORRECTIONS: [RegExp, string][] = [
   [/oregano?/gi, "Oregano"], [/rosemary?/gi, "Rosemary"],
   [/pomegranate?/gi, "Pomegranate"], [/pinapple/gi, "Pineapple"],
   [/coconvt/gi, "Coconut"], [/coconut?/gi, "Coconut"],
-  [/mascarpone?/gi, "Mascarpone"],
   [/bechamel?/gi, "Béchamel"],
   [/mornay?/gi, "Mornay"],
   [/veloute?/gi, "Velouté"],
@@ -505,7 +504,6 @@ const OCR_CORRECTIONS: [RegExp, string][] = [
   [/yorkshire?/gi, "Yorkshire"],
   [/worcestershire?/gi, "Worcestershire"],
   [/horseradish?/gi, "Horseradish"],
-  [/wasab[i]/gi, "Wasabi"],
 ];
 
 function correctOCRErrors(text: string): string {
@@ -2115,7 +2113,9 @@ function crossValidate(items: LocalOCRItem[]): LocalOCRItem[] {
     for (const item of items) {
       if (item.price !== undefined && (item.price < lowerBound || item.price > upperBound)) {
         // Remove the price — it's almost certainly corrupted by OCR
-        item.price = undefined;
+        // Create a shallow copy to avoid mutating the input array's items
+        const idx = items.indexOf(item);
+        items[idx] = { ...item, price: undefined };
       }
     }
   }

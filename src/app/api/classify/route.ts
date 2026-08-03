@@ -14,8 +14,10 @@ import path from 'path';
 import fs from 'fs';
 import { logger } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { logError } from '@/lib/error-handler';
+import { sanitizeErrorMessage } from '@/lib/utils';
 
-const PYTHON = path.resolve(process.cwd(), '.venv/Scripts/python');
+const PYTHON = path.resolve(process.cwd(), '.venv/Scripts/python.exe');
 const SCRIPT = path.resolve(process.cwd(), 'src/scripts/food_classifier.py');
 const TMP_DIR = path.resolve(process.cwd(), '.tmp');
 
@@ -65,6 +67,7 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[Classify] API error: ${message}`);
-    return Response.json({ error: message, dishes: [] }, { status: 500 });
+    logError(error, { endpoint: "/api/classify" });
+    return Response.json({ error: sanitizeErrorMessage(error), dishes: [] }, { status: 500 });
   }
 }

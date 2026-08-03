@@ -41,7 +41,7 @@ function getTimestamp(): string {
 
 async function checkLocalStorage(): Promise<DiagnosticResult> {
   try {
-    const { connectToDatabase } = await require('./mongodb');
+    const { connectToDatabase } = await import('./mongodb');
     const { db } = await connectToDatabase();
     db('scans').countDocuments();
     return { ok: true, component: 'storage', message: 'Local JSON storage OK', timestamp: getTimestamp() };
@@ -50,7 +50,7 @@ async function checkLocalStorage(): Promise<DiagnosticResult> {
       ok: false,
       component: 'storage',
       message: 'Local storage failed',
-      error: err.message || String(err),
+      error: err?.message || String(err),
       fix: 'Check that src/lib/mongodb.ts exports connectToDatabase. Run: npm run build to recompile.',
       timestamp: getTimestamp(),
     };
@@ -209,11 +209,11 @@ export async function runDiagnostics(): Promise<{
   return { healthy, checks, fixes };
 }
 
-export function logError(error: Error | string, context?: Record<string, any>) {
+export function logError(error: Error | string | unknown, context?: Record<string, any>) {
   const entry = {
     time: getTimestamp(),
-    error: typeof error === 'string' ? error : error.message,
-    stack: typeof error === 'string' ? undefined : error.stack,
+    error: typeof error === 'string' ? error : (error instanceof Error ? error.message : String(error)),
+    stack: typeof error === 'string' ? undefined : (error instanceof Error ? error.stack : undefined),
     context,
   };
   errorLog.unshift(entry);

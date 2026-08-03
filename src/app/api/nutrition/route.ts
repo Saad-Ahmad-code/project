@@ -12,6 +12,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { logError } from '@/lib/error-handler';
+import { sanitizeErrorMessage } from '@/lib/utils';
 
 const OFF_SEARCH_URL = 'https://world.openfoodfacts.org/cgi/search.pl';
 const CACHE_TTL = 3600_000; // 1 hour
@@ -296,6 +298,7 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[Nutrition] API error: ${message}`);
-    return Response.json({ error: message, results: [] }, { status: 500 });
+    logError(error, { endpoint: "/api/nutrition" });
+    return Response.json({ error: sanitizeErrorMessage(error), results: [] }, { status: 500 });
   }
 }

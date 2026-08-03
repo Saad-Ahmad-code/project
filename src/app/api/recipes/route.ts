@@ -7,6 +7,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from '@/lib/logger';
+import { logError } from '@/lib/error-handler';
+import { sanitizeErrorMessage } from '@/lib/utils';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 const MEALDB_URL = 'https://www.themealdb.com/api/json/v1/1/search.php';
@@ -77,6 +79,7 @@ export async function GET(request: NextRequest) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[Recipes] API error: ${message}`);
-    return NextResponse.json({ error: message, recipes: [] }, { status: 500 });
+    logError(error, { endpoint: "/api/recipes" });
+    return NextResponse.json({ error: sanitizeErrorMessage(error), recipes: [] }, { status: 500 });
   }
 }

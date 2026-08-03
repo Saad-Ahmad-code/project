@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatCompletions } from "@/lib/ai/client";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { logError } from "@/lib/error-handler";
+import { sanitizeErrorMessage } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,7 +62,8 @@ Return ONLY this JSON structure (no markdown, no code blocks):
     } catch {
       return NextResponse.json({ suggestions: null, raw: content });
     }
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to get suggestions" }, { status: 500 });
+  } catch (err) {
+    logError(err, { endpoint: "/api/suggest" });
+    return NextResponse.json({ error: sanitizeErrorMessage(err) }, { status: 500 });
   }
 }

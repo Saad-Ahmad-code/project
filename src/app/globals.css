@@ -104,3 +104,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Mobile-only: hide on desktop (>= 640px / sm breakpoint) */
+.mobile-only {
+  display: block;
+}
+@media (min-width: 640px) {
+  .mobile-only {
+    display: none;
+  }
+}

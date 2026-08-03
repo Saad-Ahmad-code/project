@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatCompletions } from "@/lib/ai/client";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { logError } from "@/lib/error-handler";
+import { sanitizeErrorMessage } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,7 +70,7 @@ No markdown, no code blocks, just the raw JSON.`,
 
     return NextResponse.json(data);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to get dish details";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    logError(err, { endpoint: "/api/dishes/details" });
+    return NextResponse.json({ error: sanitizeErrorMessage(err) }, { status: 500 });
   }
 }

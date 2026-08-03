@@ -93,41 +93,76 @@ const sources: ImageSource[] = [
   { name: "local", weight: 3, search: searchLocalDB },
 ];
 
+// In-flight dedup map for image search
+const inFlightImages = new Map<string, Promise<ImageResult[]>>();
+
 export async function searchDishImages(dishName: string): Promise<ImageResult[]> {
-   const allResults: ImageResult[] = [];
+  const key = dishName.trim().toLowerCase();
 
-   const settled = await Promise.allSettled(
-     sources.map((source) =>
-       withTimeout(
-         (signal: AbortSignal) => source.search(dishName, signal),
-         10000,
-         { name: `${source.name} search for "${dishName}"` }
-       )
-     )
-   );
+  // In-flight dedup — share results across concurrent callers (e.g., the same
+  // dish appearing in multiple scans processed by the 3-worker pool).
+  if (inFlightImages.has(key)) {
+    logger.info(`[Images] Dedup: reusing in-flight search for "${dishName}"`);
+    return inFlightImages.get(key)!;
+  }
 
-   for (let i = 0; i < settled.length; i++) {
-     const r = settled[i];
-     if (r.status !== "fulfilled") {
-       logger.warn(`[Images] ${sources[i].name} failed for "${dishName}": timed out`);
-       continue;
-     }
-     const results = r.value;
-     for (const img of results) {
-       if (isValidImageUrl(img.url) && isFoodImage(img.url, dishName)) {
-         allResults.push({
-           ...img,
-           score: scoreImage(img.url, dishName) + sources[i].weight,
-         });
-       }
-     }
-   }
+  const promise = searchDishImagesImpl(dishName);
+  inFlightImages.set(key, promise);
 
-   allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
+  try {
+    return await promise;
+  } finally {
+    inFlightImages.delete(key);
+  }
+}
 
-   if (allResults.length > 0 && (allResults[0].score || 0) < 30) {
-     logger.info(`[Images] Low quality results for "${dishName}" (best score: ${allResults[0].score})`);
-   }
+// Actual image search implementation (wrapped by searchDishImages for dedup)
+async function searchDishImagesImpl(dishName: string): Promise<ImageResult[]> {
+  const allResults: ImageResult[] = [];
+  // Process sources in priority order (already sorted by weight desc).
+  // Early-exit: if we find a high-quality food image (score ≥ 70) from a
+  // top-weighted source, skip remaining sources to save API calls/time.
+  const HIGH_SCORE_THRESHOLD = 70;
 
-   return allResults.slice(0, 10);
- }
+  const settled = await Promise.allSettled(
+    sources.map((source) =>
+      withTimeout(
+        (signal: AbortSignal) => source.search(dishName, signal),
+        10000,
+        { name: `${source.name} search for "${dishName}"` }
+      )
+    )
+  );
+
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i];
+    if (r.status !== "fulfilled") {
+      logger.warn(`[Images] ${sources[i].name} failed for "${dishName}": timed out`);
+      continue;
+    }
+    const results = r.value;
+    for (const img of results) {
+      if (isValidImageUrl(img.url) && isFoodImage(img.url, dishName)) {
+        const scored: ImageResult = {
+          ...img,
+          score: scoreImage(img.url, dishName) + sources[i].weight,
+        };
+        allResults.push(scored);
+        // Early exit: a high-quality result from a top source is good enough
+        if ((scored.score || 0) >= HIGH_SCORE_THRESHOLD && sources[i].weight >= 25) {
+          logger.info(`[Images] Early exit: ${sources[i].name} returned score ${scored.score} for "${dishName}"`);
+          allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
+          return allResults.slice(0, 10);
+        }
+      }
+    }
+  }
+
+  allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+  if (allResults.length > 0 && (allResults[0].score || 0) < 30) {
+    logger.info(`[Images] Low quality results for "${dishName}" (best score: ${allResults[0].score})`);
+  }
+
+  return allResults.slice(0, 10);
+}

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { CameraCapture } from "@/components/CameraCapture";
 
 export default function ScanPage() {
   const router = useRouter();
@@ -45,6 +46,8 @@ export default function ScanPage() {
   const [barcodeResult, setBarcodeResult] = useState<{ name: string; calories?: number; protein_g?: number; fat_g?: number; carbs_g?: number; sugars_g?: number; image_url?: string; nutri_score?: string } | null>(null);
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
+  // Camera capture state (mobile)
+  const [showCamera, setShowCamera] = useState(false);
 
   useEffect(() => {
     if (resultId && status === "complete") {
@@ -133,6 +136,7 @@ export default function ScanPage() {
     setBarcodeResult(null);
     setBarcodeError(null);
     setShowBarcodeScanner(false);
+    setShowCamera(false);
   };
 
   const translateMenu = async () => {
@@ -195,17 +199,33 @@ export default function ScanPage() {
           transition={{ duration: 0.2 }}
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
-          onClick={() => fileInputRef.current?.click()}
           className="border-2 border-dashed border-border rounded-xl p-12 text-center mb-4 cursor-pointer bg-surface"
         >
-          <p className="text-muted-foreground">Drop a menu image here, or click to select</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-          />
+          <p className="text-muted-foreground mb-4">Drop a menu image here, or click to select</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              variant="outline"
+              className="sm:w-auto w-full"
+            >
+              Choose File
+            </Button>
+            {/* Camera button — visible on mobile (touch devices) only */}
+            <Button
+              onClick={() => setShowCamera(true)}
+              variant="outline"
+              className="sm:w-auto w-full mobile-only"
+            >
+              Use Camera
+            </Button>
+          </div>
         </motion.div>
       )}
 
@@ -508,7 +528,16 @@ export default function ScanPage() {
           </div>
         </div>
       )}
-    </main>
+    {showCamera && (
+      <CameraCapture
+        onCapture={(file) => {
+          setShowCamera(false);
+          handleFile(file);
+        }}
+        onClose={() => setShowCamera(false)}
+      />
+    )}
+  </main>
   );
 }
 

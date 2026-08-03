@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:ocr": "OLLAMA_REFINE=0 OLLAMA_VISION=0 OLLAMA_CLEAN=0 npx tsx test_batch.ts",
+    "test:splitter": "PYTHONPATH= npx tsx test_splitter.ts",
+    "test": "npm run test:splitter && npm run test:ocr",
     "check": "npm run lint && npm run typecheck"
   },
   "dependencies": {

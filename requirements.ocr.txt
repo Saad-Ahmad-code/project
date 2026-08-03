@@ -1,0 +1,6 @@
+rapidocr
+onnxruntime
+pytesseract
+pillow
+numpy
+scipy

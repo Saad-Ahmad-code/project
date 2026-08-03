@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatCompletions } from "@/lib/ai/client";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { logError } from "@/lib/error-handler";
+import { sanitizeErrorMessage } from "@/lib/utils";
 
 const SUPPORTED_LANGUAGES: Record<string, string> = {
   english: "English",
@@ -82,6 +84,7 @@ Translate descriptions, prices (keep numbers), and any other text.`,
       return NextResponse.json({ translation: { translated_text: content, language: langName }, raw: content });
     }
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Translation failed" }, { status: 500 });
+    logError(err, { endpoint: "/api/translate" });
+    return NextResponse.json({ error: sanitizeErrorMessage(err) }, { status: 500 });
   }
 }

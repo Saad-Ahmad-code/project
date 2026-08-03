@@ -21,6 +21,12 @@ const HIT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for successes
 const MISS_TTL_MS = 10 * 60 * 1000; // 10 min for failures
 const CACHE_MAX = 500;
 
+// In-flight request deduplication — when multiple concurrent calls for the same
+// dish arrive before the first resolves, they all share the same Promise.
+// This prevents duplicate AI API calls for the same dish name (e.g., "Margherita"
+// appearing in 3 dishes across 3 different scans processed by the 3-worker pool).
+const inFlight = new Map<string, Promise<DishInfo | null>>();
+
 const cacheKey = (name: string) => name.trim().toLowerCase();
 
 function researchCacheGet(name: string): DishInfo | null | undefined {
@@ -41,8 +47,9 @@ function researchCacheSet(name: string, data: DishInfo | null): void {
 }
 
 export async function researchDish(dishName: string): Promise<DishInfo | null> {
-  const MAX_RETRIES = 2;
+  const key = cacheKey(dishName);
 
+  // Cache hit — return immediately
   const cached = researchCacheGet(dishName);
   if (cached !== undefined) {
     if (cached !== null) {
@@ -51,13 +58,23 @@ export async function researchDish(dishName: string): Promise<DishInfo | null> {
     return cached;
   }
 
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      const result = await chatCompletions({
-        messages: [
-          {
-            role: "system",
-            content: `You are a knowledgeable food expert and chef. Given a dish name, provide detailed information in valid JSON format. Be specific and accurate about ingredients and preparation.
+  // In-flight dedup — return the existing Promise so concurrent callers
+  // share the same API call instead of each firing their own.
+  if (inFlight.has(key)) {
+    logger.info(`[DishResearch] Dedup: reusing in-flight request for "${dishName}"`);
+    return inFlight.get(key)!;
+  }
+
+  const MAX_RETRIES = 2;
+
+  const promise = (async () => {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const result = await chatCompletions({
+          messages: [
+            {
+              role: "system",
+              content: `You are a knowledgeable food expert and chef. Given a dish name, provide detailed information in valid JSON format. Be specific and accurate about ingredients and preparation.
 
 Return ONLY a valid JSON object with these fields:
 {
@@ -69,54 +86,63 @@ Return ONLY a valid JSON object with these fields:
 }
 
 No markdown, no code blocks, just the raw JSON.`,
-          },
-          {
-            role: "user",
-            content: `Tell me about: ${dishName}`,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-      });
+            },
+            {
+              role: "user",
+              content: `Tell me about: ${dishName}`,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        });
 
-      const content = result.choices[0]?.message?.content;
-      if (!content) {
-        logger.warn(`[DishResearch] No content for "${dishName}"`);
-        return null;
-      }
+        const content = result.choices[0]?.message?.content;
+        if (!content) {
+          logger.warn(`[DishResearch] No content for "${dishName}"`);
+          return null;
+        }
 
-      try {
-        const cleaned = content.replace(/```json\n?|\n?```/g, "").trim();
-        const data = JSON.parse(cleaned);
-        const info: DishInfo = {
-          description: data.detailed_description || content.slice(0, 300),
-          origin: extractOrigin(data),
-          dietary_tags: extractDietaryTags(data),
-          images: [],
-        };
-        researchCacheSet(dishName, info);
-        return info;
-      } catch {
-        const info: DishInfo = {
-          description: content.slice(0, 300),
-          origin: "",
-          dietary_tags: [],
-          images: [],
-        };
-        researchCacheSet(dishName, info);
-        return info;
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`[DishResearch] Attempt ${attempt + 1} failed for "${dishName}": ${msg.slice(0, 100)}`);
-      if (attempt === MAX_RETRIES - 1) {
-        researchCacheSet(dishName, null);
-        return null;
+        try {
+          const cleaned = content.replace(/```json\n?|\n?```/g, "").trim();
+          const data = JSON.parse(cleaned);
+          const info: DishInfo = {
+            description: data.detailed_description || content.slice(0, 300),
+            origin: extractOrigin(data),
+            dietary_tags: extractDietaryTags(data),
+            images: [],
+          };
+          researchCacheSet(dishName, info);
+          return info;
+        } catch {
+          const info: DishInfo = {
+            description: content.slice(0, 300),
+            origin: "",
+            dietary_tags: [],
+            images: [],
+          };
+          researchCacheSet(dishName, info);
+          return info;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[DishResearch] Attempt ${attempt + 1} failed for "${dishName}": ${msg.slice(0, 100)}`);
+        if (attempt === MAX_RETRIES - 1) {
+          researchCacheSet(dishName, null);
+          return null;
+        }
       }
     }
-  }
 
-  return null;
+    return null;
+  })();
+
+  inFlight.set(key, promise);
+
+  try {
+    return await promise;
+  } finally {
+    inFlight.delete(key);
+  }
 }
 
 function extractOrigin(data: Record<string, unknown>): string {

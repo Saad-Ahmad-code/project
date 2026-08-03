@@ -223,35 +223,64 @@ async function pythonOCR(imageBuffer: ArrayBuffer): Promise<string> {
 }
 
 // ── Call a single AI provider ──
+// Retries on transient failures (5xx, 429, network errors) with exponential
+// backoff. Non-retryable errors (401, 404) fail immediately.
 async function callProvider(provider: { name: string; baseURL: string; model: string; apiKeyEnv: string; headers?: Record<string, string> }, opts: ChatOptions): Promise<{ choices: { message: { content: string } }[] }> {
   const apiKey = process.env[provider.apiKeyEnv];
   if (!apiKey) throw new Error(`No API key for ${provider.name}`);
 
-  const body: Record<string, unknown> = {
-    model: provider.model,
-    messages: opts.messages,
-  };
-  if (opts.temperature !== undefined) body.temperature = opts.temperature;
-  if (opts.max_tokens !== undefined) body.max_tokens = opts.max_tokens;
-  if (opts.response_format) body.response_format = opts.response_format;
+  const MAX_RETRIES = 2;
+  const BASE_DELAY_MS = 500;
 
-  const res = await fetch(`${provider.baseURL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      ...provider.headers,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30000),
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const body: Record<string, unknown> = {
+        model: provider.model,
+        messages: opts.messages,
+      };
+      if (opts.temperature !== undefined) body.temperature = opts.temperature;
+      if (opts.max_tokens !== undefined) body.max_tokens = opts.max_tokens;
+      if (opts.response_format) body.response_format = opts.response_format;
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${provider.name} returned ${res.status}: ${text.slice(0, 200)}`);
+      const res = await fetch(`${provider.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          ...provider.headers,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        const msg = `${provider.name} returned ${res.status}: ${text.slice(0, 200)}`;
+
+        // Retry on 5xx and 429 (rate limiting / service unavailable)
+        if (attempt < MAX_RETRIES && (res.status >= 500 || res.status === 429)) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+          logger.info(`[AI] ${provider.name} returned ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        throw new Error(msg);
+      }
+
+      return res.json();
+    } catch (err) {
+      if (attempt < MAX_RETRIES && err instanceof Error && /timeout|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND/i.test(err.message)) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        logger.info(`[AI] ${provider.name} network error, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
   }
 
-  return res.json();
+  throw new Error(`${provider.name} failed after ${MAX_RETRIES + 1} attempts`);
 }
 
 // ── Gemini Direct Vision ──
@@ -333,8 +362,16 @@ export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string)
   const errors: string[] = [];
 
   // Try OpenRouter vision models
+  // OpenRouter free models share a single daily quota (50 req/day) — once
+  // one model returns 429/rate-limited, the rest will too. Short-circuit to
+  // avoid hammering the API with redundant requests that all fail identically.
   if (process.env.OPENROUTER_API_KEY) {
+    let openRouterRateLimited = false;
     for (const model of VISION_MODELS) {
+      if (openRouterRateLimited) {
+        logger.warn({ message: `Vision model ${model} skipped: OpenRouter already rate-limited` });
+        continue;
+      }
       try {
         logger.info({ message: "Trying vision model", model });
         return await callOpenRouterVision(imageBuffer, prompt, model);
@@ -342,6 +379,12 @@ export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string)
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`${model}: ${msg}`);
         logger.warn({ message: `Vision model ${model} failed`, error: msg });
+        // Detect rate-limiting (429 / quota / rate limit) — all remaining
+        // OpenRouter free models share the same quota, so skip them.
+        if (/429|quota|rate limit|free-models-per-day/i.test(msg)) {
+          openRouterRateLimited = true;
+          logger.warn({ message: "OpenRouter rate-limited, skipping remaining vision models" });
+        }
       }
     }
   }
@@ -354,15 +397,6 @@ export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string)
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Gemini: ${msg}`);
     }
-  }
-
-  // Try local OCR (Tesseract.js - not available in Next.js)
-  try {
-    logger.info({ message: "Trying local Tesseract OCR fallback" });
-    throw new Error("Tesseract.js not available in Next.js context");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`LocalOCR: ${msg}`);
   }
 
   // Try Python OCR
