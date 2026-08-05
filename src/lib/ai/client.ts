@@ -443,14 +443,14 @@ export async function chatCompletions(opts: ChatOptions): Promise<{ choices: { m
 
   let lastError: Error | null = null;
 
-  // Short-circuit state. OpenRouter free tier is ONE shared daily quota
-  // (50 req/day) across all :free models — once one model 429s, the rest of
-  // that key's models will too. Skipping them avoids the previous death
-  // march: 30s timeout on one provider, then 429 after 429 after 429 before
-  // finally reaching a paid/other key. 404 means a dead model slug — also
-  // skipped so repeated calls stop probing it (it won't come back this run).
-  const rateLimitedKeys = new Set<string>();
-  const deadModels = new Set<string>();
+// Short-circuit state (module-level → shared across all requests in this
+// process). OpenRouter free tier is ONE shared daily quota (50 req/day)
+// across all :free models — once one model 429s, the rest of that key's
+// models will too. Skipping them avoids the previous death march:
+// 30s timeout on one provider, then 429 after 429 before finally reaching
+// another key. 404 means a dead model slug — also skipped permanently.
+const rateLimitedKeys = new Set<string>();
+const deadModels = new Set<string>();
 
   for (const provider of available) {
     if (circuitOpen(provider.model)) {

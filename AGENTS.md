@@ -63,8 +63,10 @@ User uploads menu photo (src/app/scan)
        L4 AI Vision API (OpenRouter → Gemini, via src/lib/ai/client.ts)
   → dishes + scan persisted via src/lib/storage (JSON-file DB, src/lib/mongodb.ts)
   → agent job queued (src/lib/agent/queue.ts) → enrich each dish:
-       AI description/tags (src/lib/agent/dish-research.ts)
        Images (src/lib/images — multi-source: Unsplash/Pexels/Bing/Wikipedia/Openverse/MealDB)
+       AI description/tags are generated ON DEMAND when the user clicks a dish
+       (POST /api/dishes/details) — deliberately not pre-generated per dish,
+       to save AI tokens/time on large menus
   → results page (src/app/results/[id]) reads scan by id
 ```
 

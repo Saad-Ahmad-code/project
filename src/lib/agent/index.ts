@@ -3,7 +3,6 @@
  * and persists enriched fields back to the dishes collection.
  */
 import { logger } from "@/lib/logger";
-import { researchDish } from "@/lib/agent/dish-research";
 import { searchDishImages } from "@/lib/images";
 import { chatCompletions } from "@/lib/ai/client";
 import { ENRICHMENT_CONCURRENCY } from "@/lib/config";
@@ -39,7 +38,12 @@ export async function runAgent(
       const item = items[index];
 
       try {
-        const info = await researchDish(item.name);
+        // Descriptions are generated ON DEMAND when the user clicks a dish
+        // (POST /api/dishes/details) — deliberately skipping the per-dish AI
+        // research call here saves one AI call per dish and lets scans
+        // complete in seconds instead of minutes (a 40-dish menu previously
+        // cost 40 AI calls before any dish was even viewed). Image search
+        // still runs so cards have photos immediately.
         onProgress?.(index + 1, items.length, item.name);
 
         let images: string[] = [];
@@ -54,11 +58,11 @@ export async function runAgent(
           id: item.id || `${scanId}-${index}-${Date.now().toString(36)}`,
           name: item.name,
           description: item.description,
-          ai_description: info?.description || "",
+          ai_description: "",
           price: item.price,
           category: item.category || "other",
-          origin: info?.origin || "",
-          dietary_tags: info?.dietary_tags || [],
+          origin: "",
+          dietary_tags: [],
           images,
           confidence: 0.9,
         } as DishResult;

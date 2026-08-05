@@ -47,17 +47,40 @@ export default function ResultsPage() {
 
   useEffect(() => {
     if (!params.id) return;
-    fetch(`/api/scan/${encodeURIComponent(params.id as string)}`)
-      .then((r) => r.json())
-      .then((data) => {
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const fetchScan = async () => {
+      try {
+        const res = await fetch(`/api/scan/${encodeURIComponent(params.id as string)}`);
+        const data = await res.json();
+        if (cancelled) return;
         setScan(data.scan);
         setItems(data.items || []);
-      })
-      .catch((err) => {
+        // Keep polling while the background enrichment is still running so
+        // AI descriptions/images appear as soon as they're written.
+        const status = data.scan?.status;
+        if ((status === "processing" || status === "queued" || status === "pending") && !pollTimer) {
+          pollTimer = setInterval(fetchScan, 4000);
+        } else if (status && status !== "processing" && status !== "queued" && status !== "pending" && pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      } catch (err: any) {
+        if (cancelled) return;
         setError(err.message);
         toast.error(err.message);
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    fetchScan();
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+    };
   }, [params.id]);
 
   const openDishImages = async (dish: MenuItem) => {
