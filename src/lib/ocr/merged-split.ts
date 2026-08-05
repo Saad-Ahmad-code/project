@@ -20,7 +20,7 @@ export function splitMergedDishLine(name: string, trailingPrice?: number): { nam
   const midPrice = normalizePrice(m[2].replace(/\s+(\d{2})$/, ".$1"));
   if (midPrice === null || midPrice < 1 || midPrice >= 2000) return null;
 
-  const firstWord = first.split(/\s+/)[0] || "";
+  const firstWords = first.split(/\s+/).filter(Boolean);
   const secondWords = second.split(/\s+/).filter(Boolean);
   const firstOk =
     first.length >= 3 &&
@@ -28,13 +28,19 @@ export function splitMergedDishLine(name: string, trailingPrice?: number): { nam
     !isDescriptionLine(first) &&
     !DISH_PREFIX_WORDS.test(first) &&
     hasSufficientRealWords(first) &&
-    (isFoodRelated(firstWord) || first === first.toUpperCase());
+    // Any food-related word in the first segment is enough — "Classic Milk
+    // Cake" (Cake) or "Smoked Brisket" (Smoked) both qualify; requiring the
+    // FIRST word to be food dropped legit rows like "Classic Milk Cake $6 00 …".
+    (firstWords.some(isFoodRelated) || first === first.toUpperCase());
   const secondOk =
     second.length >= 3 &&
     !isNoiseLine(second) &&
     !isDescriptionLine(second) &&
     !DISH_PREFIX_WORDS.test(second) &&
-    hasSufficientRealWords(second) &&
+    // Relaxed real-word gate for the second segment: short connectors
+    // ("Soda IN A Bottle") fail the 60% gate despite being a legit dish, so
+    // a food-related word OR sufficient real words is enough.
+    (hasSufficientRealWords(second) || secondWords.some(isFoodRelated)) &&
     (secondWords.length >= 2 || isFoodRelated(second) || second === second.toUpperCase());
   if (!firstOk || !secondOk) return null;
 

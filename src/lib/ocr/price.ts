@@ -39,10 +39,30 @@ export function normalizePrice(raw: string): number | null {
   return isNaN(n) ? null : n;
 }
 
+/** K-price token: "13K", "21K", "৳25K" → value × 1000 (South-Asian menus
+ *  quote prices in thousands). Returns the numeric value or null. */
+function kPriceValue(token: string): number | null {
+  const m = token.match(/(\d{1,4})\s*[Kk]/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return n > 0 && n < 2000 ? n * 1000 : null;
+}
+
 export function findPriceInText(text: string): PriceResult | null {
   const t = text.trim();
 
-  const trailing = t.match(/(?:^|\s)([$€£¥RsSs.]+\s*)?(\d{1,3}(?:[.,]\d{1,2})?|\d{1,3}\s+\d{2})[\s.]*$/);
+  // K-prices matched ANYWHERE — a K-token buried mid-name is still a price
+  // token (e.g. "Espresso 13K ANY" → strips to "Espresso"). Trailing K-token
+  // reads as the trailing price; mid-name tokens are stripped by cleanup.
+  const kToken = t.match(/(?:^|\s)([$€£¥RsSs৳.]+\s*)?(\d{1,4})\s*[Kk]\b/);
+  if (kToken) {
+    const n = kPriceValue(kToken[0]);
+    if (n !== null) {
+      return { price: n, raw: kToken[0].trim(), position: "trailing" };
+    }
+  }
+
+  const trailing = t.match(/(?:^|\s)([$€£¥RsSs.]+)?(\d{1,3}(?:[.,]\d{1,2})?|\d{1,3}\s+\d{2})[\s.]*$/);
   if (trailing) {
     const price = normalizePrice(trailing[0]);
     if (price !== null && price < 2000) {
@@ -50,7 +70,7 @@ export function findPriceInText(text: string): PriceResult | null {
     }
   }
 
-  const leading = t.match(/^[$€£¥Rs.]+\s*(\d{1,3}(?:[.,]\d{1,2})?)\s+/);
+  const leading = t.match(/^[$€£¥Rs.]+(\d{1,3}(?:[.,]\d{1,2})?)\s+/);
   if (leading) {
     const price = normalizePrice(leading[0]);
     if (price !== null && price < 2000) {
@@ -62,7 +82,14 @@ export function findPriceInText(text: string): PriceResult | null {
 }
 
 export function findPriceInWord(word: string): PriceResult | null {
-  const m = word.match(/^[$€£¥Rs.]+\s*(\d{1,3}(?:[.,]\d{1,2})?)$/i);
+  // K-prices: "13K", "21K"
+  const k = word.match(/^[$€£¥RsSs৳.]*(\d{1,4})[Kk]$/i);
+  if (k) {
+    const n = kPriceValue(k[0]);
+    if (n !== null) return { price: n, raw: k[0].trim(), position: "standalone" };
+  }
+
+  const m = word.match(/^[$€£¥Rs.]+(\d{1,3}(?:[.,]\d{1,2})?)$/i);
   if (m) {
     const price = normalizePrice(m[0]);
     if (price !== null && price < 2000) {

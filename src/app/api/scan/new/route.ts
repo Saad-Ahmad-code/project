@@ -122,6 +122,13 @@ const send = (event: string, data: unknown) => {
             if (result?.insertedId) {
               scanId = result.insertedId;
             }
+            // Mark the scan as processing so the results page keeps polling
+            // (every 4s) until the background enrichment finishes — otherwise
+            // saveScan's default 'completed' status makes the page fetch once
+            // and never refresh, so images/tags appear only on manual reload.
+            try {
+              mongodb('scans').updateOne({ id: scanId }, { $set: { status: 'processing' } });
+            } catch { /* non-fatal */ }
 
             // Items keep a stable `id` (used by the client and the SSE payload);
             // ids derive from the FINAL scan id so they can't drift from the scan.

@@ -34,6 +34,13 @@ export function isNoiseLine(text: string): boolean {
   if (/(?:allergen|nutrition|ingredients|contains)/i.test(lower)) return true;
   if (/^hotel\b/i.test(lower)) return true;
 
+  // Venue taglines: "COFFEE HOUSE: Good Coffee, Great Vibes", "Tog Jv:
+  // Chicken Steak" — a Title-case line with a colon and no digits is a
+  // venue/slogan, not a dish. Lines WITH a price ("Pizza: $10") survive
+  // (the colon is part of the dish + price layout).
+  if (/^[A-Za-z][^:\d]{2,40}:\s+[A-Z][a-z]/.test(t)) return true;
+  if (/(good coffee|great vibes|coffee house|family restaurant|home of|taste the|best in town|since\s+\d{3,4})/i.test(t)) return true;
+
   if (/^(menu|menus)$/i.test(t.trim())) return true;
 
   if (/^(restaurant|cafe|café|bistro|grill|grille|lounge|bar|truck|house|deli)$/i.test(t.trim())) return true;
@@ -131,6 +138,49 @@ export function hasSufficientRealWords(name: string): boolean {
   const realWords = wordLike.filter(w => REAL_WORD_RE.test(w));
   const threshold = Math.max(1, Math.ceil(wordLike.length * 0.6));
   return realWords.length >= threshold;
+}
+
+/**
+ * Final junk gate for extracted dish names — catches OCR/parse artifacts that
+ * the earlier stages let through (venue taglines, fused rows, K-price
+ * leftovers, junk suffixes, all-caps non-food lines). Runs AFTER cleanup,
+ * price extraction and merging, so it only sees the "final" name.
+ *
+ * Returns true when the name should be REJECTED (not a plausible dish).
+ */
+export function rejectJunkDish(name: string): boolean {
+  const t = name.trim();
+  if (t.length < 3) return true;
+
+  // Venue tagline / slogan with a colon ("COFFEE HOUSE: Good Coffee, Great
+  // Vibes", "Tog Jv: Chicken Steak"). Priced lines survive elsewhere.
+  if (/^[A-Za-z][^:\d]{2,40}:\s+[A-Z][a-z]/.test(t)) return true;
+  if (/(good coffee|great vibes|coffee house|family restaurant|home of|taste the|best in town)/i.test(t)) return true;
+
+  // Leftover K-price token ("Espresso 13K ANY" → "13K" survived cleanup).
+  if (/\b\d{1,4}\s*[Kk]\b/.test(t)) return true;
+
+  // Fused prices that survived the splitter ("$6 00", "$4 50").
+  if (/\$\s*\d+\s+\d{2}\b/.test(t)) return true;
+
+  // Junk suffix/prefix remnants.
+  if (/\s+(SOWOW|ANY)\s*$/i.test(t)) return true;
+  if (/\s+DESIGNED\s+BY\b/i.test(t)) return true;
+  if (/^&|^[&*+]/.test(t)) return true;
+
+  // All-caps multi-word line with NO food words and no digits. Only 3+ words
+  // ("TNEW YORK STRIP" would be caught by other rules; 2-word all-caps like
+  // "ICE TEA" / "BEEF STEAK" / "MINERAL WATER" are legit dish names).
+  const words = t.split(/\s+/);
+  if (words.length >= 3 && t === t.toUpperCase() && !/\d/.test(t)) {
+    if (!words.some(w => isFoodRelated(w))) return true;
+  }
+
+  // High digit ratio (e.g. "Faluda weer 7ETR" — digits mixed into words).
+  const digits = (t.match(/\d/g) || []).length;
+  if (digits > 0 && digits / t.length > 0.3) return true;
+
+  return false;
 }
 
 export function nameTableEntry(nameText: string, category: string, layout: string): boolean {

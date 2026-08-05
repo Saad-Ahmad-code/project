@@ -6,8 +6,11 @@ export function cleanDishName(raw: string): string {
   name = name.replace(/^[★☆⭐●◆▪▸▹►→▪•¶※✓✗✘✔✖✝✙✦✧⬟⬡⌾⭑✪✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀]+/, "").trim();
 
   name = name
-    .replace(/^(NEW!?|CHEF'?S?\s*SPECIAL|SIGNATURE|HOTEL|RESTAURANT|CAFE|CAFÉ|BAR|LOUNGE|GRILL|GRILLE|BISTRO)\s+/i, "")
+    .replace(/^(NEW!?|CHEF'?S?\s*SPECIAL|SIGNATURE|HOTEL|RESTAURANT|CAFE|CAFÉ|BAR|LOUNGE|GRILL|GRILLE|BISTRO|MENU|MENU:)\s+/i, "")
     .trim();
+
+  // Leading bullets / ampersands from OCR ("& Chocolate Caramel").
+  name = name.replace(/^[&*+]+/, "").trim();
 
   name = name.replace(/^\s*\[.*?\]\s*/, "").trim();
   name = name.replace(/\s*\[.*?\]\s*$/, "").trim();
@@ -42,6 +45,15 @@ export function cleanDishName(raw: string): string {
   name = name.replace(/\./g, " ").replace(/\s+/g, " ").trim();
 
   name = name.replace(/\s+(NEW|SPICY|HOT|MILD|CHEF'?S?\s*SPECIAL|SIGNATURE)$/i, "").trim();
+
+  // Trailing OCR/venue junk: "Chicken Strips SOWOW", "Espresso 13K ANY",
+  // "ICE MILK DESIGNED BY <name>" (designer credit fused onto the dish).
+  name = name.replace(/\s+(?:SOWOW|ANY)\s*$/i, "").trim();
+  name = name.replace(/\s+DESIGNED\s+BY\b.*$/i, "").trim();
+
+  // Mid-name K-price tokens ("HOT COLD Caramel Milk 21K 23K" → "HOT COLD
+  // Caramel Milk"); the trailing one is already extracted as a price.
+  name = name.replace(/\b\d{1,4}\s*[Kk]\b/g, " ").replace(/\s+/g, " ").trim();
 
   if (name.length > 3) {
     name = name.replace(/\s+S$/, "").trim();

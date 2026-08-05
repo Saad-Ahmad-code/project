@@ -12,6 +12,7 @@
     "test:ocr": "cross-env OLLAMA_REFINE=0 OLLAMA_VISION=0 OLLAMA_CLEAN=0 npx tsx test_batch.ts",
     "test:splitter": "cross-env PYTHONPATH= npx tsx test_splitter.ts",
     "test:units": "cross-env PYTHONPATH= npx tsx test_units.ts",
+    "test:analysis": "cross-env OLLAMA_REFINE=0 OLLAMA_VISION=0 OLLAMA_CLEAN=0 npx tsx test_analysis.ts",
     "test": "npm run test:units && npm run test:splitter && npm run test:ocr",
     "check": "npm run lint && npm run typecheck"
   },

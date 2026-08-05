@@ -101,7 +101,9 @@ export function isFoodRelated(word: string): boolean {
     /^(sauerbraten|schnitzel|spätzle|bratwurst|weisswurst)$/.test(w) ||
     /^(köttbullar|smörgås|gravlax|herring|lingonberry)$/.test(w) ||
     /^(pierogi|bigos|golabki|kielbasa|zurek)$/.test(w) ||
-    /^(borscht|pelmeni|blini|shashlik|kasha)$/.test(w)
+    /^(borscht|pelmeni|blini|shashlik|kasha)$/.test(w) ||
+    /^(chopsuey|chop\s*suey|halo-halo|leche\s*flan|flan|adobo|sinigang|kare-kare|pancit|lugaw|arroz\s*caldo)$/.test(w) ||
+    /^(maggi|momos|momo|chowmein|chow\s*mein|chicken\s*65|gobi|manchow|hot\s*and\s*sour)$/.test(w)
   )
     return true;
   return false;

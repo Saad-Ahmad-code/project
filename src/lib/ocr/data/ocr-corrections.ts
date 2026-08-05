@@ -1,6 +1,6 @@
 export const OCR_CORRECTIONS: [RegExp, string][] = [
   [/pizz[saz]/gi, "Pizza"], [/pizz[aas]/gi, "Pizza"],
-  [/ch[ie]ken/gi, "Chicken"], [/chl[ck]en/gi, "Chicken"], [/bvrger/gi, "Burger"], [/bvrg[ae]r/gi, "Burger"],
+  [/ch[ie]ken/gi, "Chicken"], [/chl[ck]en/gi, "Chicken"], [/chlcken/gi, "Chicken"], [/bvrger/gi, "Burger"], [/bvrg[ae]r/gi, "Burger"],
   [/sandwich/gi, "Sandwich"], [/sandw[ei]ch/gi, "Sandwich"], [/sandwish/gi, "Sandwich"],
   [/spagh[ea]tti/gi, "Spaghetti"], [/spagheti/gi, "Spaghetti"], [/spaghett[it]/gi, "Spaghetti"],
   [/lasagn?a/gi, "Lasagna"], [/rav[i1]oli/gi, "Ravioli"],
@@ -9,7 +9,7 @@ export const OCR_CORRECTIONS: [RegExp, string][] = [
   [/\bfr[ie]d\b/gi, "Fried"], [/grille?d/gi, "Grilled"], [/roaste?d/gi, "Roasted"],
   [/bake?d/gi, "Baked"], [/smoke?d/gi, "Smoked"], [/steame?d/gi, "Steamed"],
   [/sa[uv]tee?d/gi, "Sautéed"], [/poache?d/gi, "Poached"], [/scramble?d/gi, "Scrambled"],
-  [/ch[ei]ese/gi, "Cheese"], [/cheez/gi, "Cheese"],
+  [/ch[ei]ese/gi, "Cheese"], [/cheez/gi, "Cheese"], [/ch[e]se\b/gi, "Cheese"],
   [/broccol[il]/gi, "Broccoli"], [/m[uv]shroom/gi, "Mushroom"], [/mushro[o0]m/gi, "Mushroom"],
   [/avocado?/gi, "Avocado"], [/avocad[o0]/gi, "Avocado"],
   [/jalapeno/gi, "Jalapeño"], [/jalape[mn]o/gi, "Jalapeño"],
@@ -36,6 +36,8 @@ export const OCR_CORRECTIONS: [RegExp, string][] = [
   [/smooth[ie]s/gi, "Smoothie"], [/cocktail[sz]/gi, "Cocktail"],
   [/stout\s*float/gi, "Stout Float"], [/\[?\bpa\b\]?/gi, "IPA"],
   [/sai?mon/gi, "Salmon"], [/risoh[o0]/gi, "Risotto"], [/tiramis[uv]/gi, "Tiramisu"],
+  [/stake\b/gi, "Steak"], [/shr[i1]p\b/gi, "Shrimp"], [/tnew\s*york\b/gi, "New York"],
+  [/fal[uv]da\b/gi, "Falooda"],
   [/aperol[^\s]*\s*sprlz/gi, "Aperol Spritz"],
   [/margarit[as]/gi, "Margarita"], [/martin[i]s/gi, "Martini"],
   [/gvozas?/gi, "Gyoza"], [/dvmplings?/gi, "Dumpling"],
@@ -73,5 +75,11 @@ export function correctOCRErrors(text: string): string {
   for (const [pattern, replacement] of OCR_CORRECTIONS) {
     result = result.replace(pattern, replacement);
   }
-  return result;
+  // Title-case a trailing all-caps word when the previous word is
+  // Title-case: "New York STRIP" → "New York Strip". Multi-word all-caps
+  // names ("SALMON FILLET", "ICE TEA") are untouched because their previous
+  // word is also all-caps.
+  return result.replace(/\b([A-Z][a-z]+)\s+([A-Z]{3,})$/g, (_m, first: string, second: string) => {
+    return `${first} ${second[0]}${second.slice(1).toLowerCase()}`;
+  });
 }

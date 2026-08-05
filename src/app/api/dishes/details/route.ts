@@ -4,6 +4,16 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { logError } from "@/lib/error-handler";
 import { sanitizeErrorMessage } from "@/lib/utils";
 import { requireCsrf } from "@/lib/csrf";
+import { db } from "@/lib/storage";
+
+/** Shape of the AI-generated dish details, persisted on the dish doc. */
+interface DishDetailsData {
+  detailed_description: string;
+  ingredients: string[];
+  preparation: string;
+  serving_suggestions: string;
+  fun_fact: string;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,10 +24,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Too many requests. Wait a minute and try again." }, { status: 429 });
     }
 
-    const { dishName, category, origin, description } = await request.json();
+    const { dishName, category, origin, description, id } = await request.json();
 
     if (!dishName?.trim()) {
       return NextResponse.json({ error: "Dish name is required" }, { status: 400 });
+    }
+
+    // Persistent cache: if this dish's details were already generated
+    // (and stored on its doc), return them — generate once ever, not once
+    // per server session or per click.
+    if (id) {
+      try {
+        const dish = await db.findById("dishes", id);
+        const existing = (dish as Record<string, unknown> | null)?.ai_details as DishDetailsData | undefined;
+        if (existing?.detailed_description) {
+          return NextResponse.json(existing);
+        }
+      } catch {
+        // non-fatal: fall through to generation
+      }
     }
 
     const context: string[] = [];
@@ -72,6 +97,23 @@ No markdown, no code blocks, just the raw JSON.`,
         serving_suggestions: "",
         fun_fact: "",
       };
+    }
+
+    // Persist the generated details on the dish doc so re-clicks (even
+    // after a server restart) return the cached result instead of paying
+    // for another AI call. ai_description is the plain-text snippet for
+    // cards; ai_details is the full structured object for the dialog.
+    if (id) {
+      try {
+        db.update("dishes", id, {
+          ai_details: data,
+          ai_description: typeof data.detailed_description === "string"
+            ? (data.detailed_description as string).slice(0, 300)
+            : "",
+        });
+      } catch {
+        // non-fatal: in-memory client cache still covers this session
+      }
     }
 
     return NextResponse.json(data);

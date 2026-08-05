@@ -116,8 +116,46 @@ export function groupIntoLines(words: WordPos[]): TextLine[] {
     for (const seg of segments) {
       if (seg.length === 0) continue;
       const subSegments = splitMultiPriceRow(seg, imgWidth);
-      for (const subSeg of subSegments) {
+      for (let subSeg of subSegments) {
         if (subSeg.length === 0) continue;
+
+        // Fused header + dish on one OCR line ("DESSERTS Orange Juice"):
+        // split the leading all-caps category keyword into its own header
+        // line so it sets the category instead of polluting the dish name.
+        const firstWord = subSeg[0].text.trim();
+        const firstWordLower = firstWord.toLowerCase().replace(/s$/, "");
+        // Guard: "PIZZA COMBOS" is a multi-word HEADER (both words are
+        // category keywords) — only split when the remainder is NOT a
+        // category phrase ("DESSERTS Orange Juice" → header + dish).
+        const restLower = subSeg.slice(1).map(w => w.text.toLowerCase()).join(" ");
+        const restIsCategory =
+          CATEGORY_KEYWORDS.has(restLower) || CATEGORY_KEYWORDS.has(restLower.replace(/s$/, ""));
+        if (
+          subSeg.length > 1 &&
+          firstWord === firstWord.toUpperCase() &&
+          /[A-Z]{3,}/.test(firstWord) &&
+          CATEGORY_KEYWORDS.has(firstWordLower) &&
+          !restIsCategory
+        ) {
+          const hw = subSeg[0];
+          lines.push({
+            text: firstWord,
+            x: hw.x,
+            y: hw.y,
+            w: hw.w,
+            h: hw.h,
+            words: [hw],
+            hasPrice: false,
+            price: undefined,
+            priceEndX: 0,
+            isCentered: false,
+            isAllCaps: true,
+            isHeader: true,
+          });
+          subSeg = subSeg.slice(1);
+          if (subSeg.length === 0) continue;
+        }
+
         const text = subSeg.map(w => w.text).join(" ").trim();
         if (!text) continue;
 
@@ -487,8 +525,25 @@ export function sequentialParse(rawText: string): ParsedDish[] {
     if (lines.length === 0) continue;
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      let line = lines[i];
       if (isNoiseLine(line)) continue;
+
+      // Fused header + dish on one line ("DESSERTS Orange Juice"): the
+      // leading all-caps category keyword sets the section header, the rest
+      // continues as the line to parse. Guard: a multi-word header like
+      // "PIZZA COMBOS" (remainder is itself a category) stays whole.
+      const capHeader = line.match(/^([A-Z]{3,}s?)\s+(.+)$/);
+      const remLower = capHeader ? capHeader[2].toLowerCase() : "";
+      if (
+        capHeader &&
+        CATEGORY_KEYWORDS.has(capHeader[1].toLowerCase().replace(/s$/, "")) &&
+        !CATEGORY_KEYWORDS.has(remLower) &&
+        !CATEGORY_KEYWORDS.has(remLower.replace(/s$/, ""))
+      ) {
+        currentCategory = capHeader[1];
+        headerSeen = true;
+        line = capHeader[2];
+      }
 
       const priceOnLine = findPriceInText(line);
       if (isHeaderLike(line, !!priceOnLine, false, line.split(/\s+/))) {
@@ -612,8 +667,22 @@ export function basicExtract(rawText: string): ParsedDish[] {
   const hasHeaders = firstHeaderIdx >= 0;
 
   for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
+    let line = lines[li];
     if (isNoiseLine(line)) continue;
+
+    // Fused header + dish on one line ("DESSERTS Orange Juice"). Guard:
+    // "PIZZA COMBOS" (remainder is itself a category) stays whole.
+    const capHeader = line.match(/^([A-Z]{3,}s?)\s+(.+)$/);
+    const remLower = capHeader ? capHeader[2].toLowerCase() : "";
+    if (
+      capHeader &&
+      CATEGORY_KEYWORDS.has(capHeader[1].toLowerCase().replace(/s$/, "")) &&
+      !CATEGORY_KEYWORDS.has(remLower) &&
+      !CATEGORY_KEYWORDS.has(remLower.replace(/s$/, ""))
+    ) {
+      currentCategory = capHeader[1];
+      line = capHeader[2];
+    }
 
     const cleaned = line.replace(/[|]/g, " ").replace(/\s+/g, " ").trim();
     const price = findPriceInText(cleaned);

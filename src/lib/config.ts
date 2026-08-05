@@ -62,8 +62,9 @@ export const APP_CONFIG = {
     maxEntries: 500,
   },
   nutritionCache: {
-    /** Nutrition lookup cache TTL */
-    ttlMs: 3600_000, // 1 hour
+    /** Nutrition lookup cache TTL — 7 days: per-dish nutrition is static,
+     *  so re-fetching it daily (or worse, per click) wastes API calls. */
+    ttlMs: 7 * 24 * 3600_000,
   },
 } as const;
 

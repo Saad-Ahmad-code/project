@@ -88,6 +88,12 @@ export default function ResultsPage() {
     setMoreImages([]);
     setLoadingImages(true);
     loadDishDetails(dish); // fire in parallel with the image fetch
+    // Pre-warm the nutrition cache (7d TTL server-side) so the card's
+    // Nutrition button is instant when the user clicks it.
+    fetchWithCsrf("/api/nutrition", {
+      method: "POST",
+      body: JSON.stringify({ dish_name: dish.name }),
+    }).catch(() => {});
     try {
       const res = await fetch(`/api/images/${encodeURIComponent(dish.name)}`);
       const data = await res.json();
@@ -114,6 +120,7 @@ export default function ResultsPage() {
         method: "POST",
         body: JSON.stringify({
           dishName: dish.name,
+          id: dish.id,
           category: dish.category,
           origin: dish.origin,
           description: dish.description || dish.ai_description || undefined,

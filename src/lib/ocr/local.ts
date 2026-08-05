@@ -14,10 +14,12 @@
  */
 
 import Tesseract from "tesseract.js";
+import { createHash } from "crypto";
 import { cleanOCRText } from "./cleaner";
 import { cleanTextWithOllama, ollamaVisionOCR, parseDishArray, refineWithOllama } from "./ollama";
 import { splitMergedItemsFallback } from "./merged-split";
 import { parseResultData, crossValidate, paragraphAwareParse, smartParse, sequentialParse, basicExtract } from "./parsing";
+import { rejectJunkDish } from "./validation";
 import { tryRapidOCR, tryTesseractOnBuffer, getBestResult, pickByParseQuality, menuOCRRescue, estimateSkewDegrees, OCRCandidate } from "./candidates";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -40,23 +42,57 @@ interface WordPos {
 //  MAIN ENTRY POINT — with Sharp preprocessing + multi-PSM
 // ═══════════════════════════════════════════════════════════════════
 
+// ── Result cache (image-hash keyed) ──
+// Scanning the same image twice (retry, re-upload, identical test corpus
+// image) is pure waste: every run costs multi-reader OCR + possibly two
+// Ollama calls. Cache the final result for a short TTL so identical bytes
+// resolve instantly. 60 entries ≈ 60 distinct menu photos in a 10-minute
+// window — ample for a single-user dev box and most prod sessions.
+const OCR_RESULT_CACHE = new Map<string, { result: { raw_text: string; items: LocalOCRItem[] }; ts: number }>();
+const OCR_RESULT_CACHE_TTL_MS = 10 * 60 * 1000;
+const OCR_RESULT_CACHE_MAX = 60;
+
+function ocrCacheGet(hash: string): { raw_text: string; items: LocalOCRItem[] } | null {
+  const entry = OCR_RESULT_CACHE.get(hash);
+  if (entry && Date.now() - entry.ts < OCR_RESULT_CACHE_TTL_MS) return entry.result;
+  if (entry) OCR_RESULT_CACHE.delete(hash);
+  return null;
+}
+
+function ocrCacheSet(hash: string, result: { raw_text: string; items: LocalOCRItem[] }): void {
+  if (OCR_RESULT_CACHE.size >= OCR_RESULT_CACHE_MAX) {
+    const first = OCR_RESULT_CACHE.entries().next().value;
+    if (first) OCR_RESULT_CACHE.delete(first[0]);
+  }
+  OCR_RESULT_CACHE.set(hash, { result, ts: Date.now() });
+}
+
 export async function runLocalOCR(
   file: File
 ): Promise<{ raw_text: string; items: LocalOCRItem[] }> {
   let resultData: any;
   let inputBuffer: Buffer | null = null;
+  let hash = "";
 
   try {
     inputBuffer = Buffer.isBuffer(file as unknown)
       ? (file as unknown as Buffer)
       : Buffer.from(await (file as unknown as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer());
 
+    // Identical bytes → cached result (no re-OCR, no Ollama calls).
+    hash = createHash("sha256").update(inputBuffer).digest("hex").slice(0, 32);
+    const cached = ocrCacheGet(hash);
+    if (cached) return cached;
+
     try {
       const sharp = eval('require')('sharp');
+      // NOTE: normalize()+sharpen() were measured ~8x SLOWER in Tesseract
+      // (10s vs 1.2s per PSM on the same image) with no corpus-quality gain —
+      // high-contrast sharpened input makes the LSTM segment far harder.
+      // Grayscale + resize keeps ~full quality at ~1/8th the cost; the
+      // meanLum<60 boosted path below handles genuinely dark images.
       const preprocessed = await sharp(inputBuffer)
         .grayscale()
-        .normalize()
-        .sharpen()
         .resize({ width: 2048, withoutEnlargement: true })
         .toBuffer();
       const meanLum = (await sharp(preprocessed).stats()).channels[0].mean;
@@ -76,21 +112,20 @@ export async function runLocalOCR(
           .rotate(skewDeg, { background: { r: 255, g: 255, b: 255 } })
           .toBuffer();
         if (Math.abs(skewDeg) >= 2.5) deskewedCount = 4;
-        results.push(
-          await tryRapidOCR(deskewedRaw),
-          ...(await Promise.all(psmModes.map((psm) => tryTesseractOnBuffer(deskewedPrep, psm)))),
-          rapid,
-          await tryTesseractOnBuffer(preprocessed, 6),
-          await tryTesseractOnBuffer(preprocessed, 4),
-          await tryTesseractOnBuffer(preprocessed, 11),
-        );
+        // All 6 Tesseract runs in parallel (they were sequential before).
+        const [d6, d4, d11, s6, s4, s11] = await Promise.all([
+          tryTesseractOnBuffer(deskewedPrep, 6),
+          tryTesseractOnBuffer(deskewedPrep, 4),
+          tryTesseractOnBuffer(deskewedPrep, 11),
+          tryTesseractOnBuffer(preprocessed, 6),
+          tryTesseractOnBuffer(preprocessed, 4),
+          tryTesseractOnBuffer(preprocessed, 11),
+        ]);
+        results.push(await tryRapidOCR(deskewedRaw), d6, d4, d11, rapid, s6, s4, s11);
       } else {
-        results.push(
-          rapid,
-          await tryTesseractOnBuffer(preprocessed, 6),
-          await tryTesseractOnBuffer(preprocessed, 4),
-          await tryTesseractOnBuffer(preprocessed, 11),
-        );
+        // RapidOCR first (needed for skew), then all 3 PSM modes in parallel.
+        const [t6, t4, t11] = await Promise.all(psmModes.map((psm) => tryTesseractOnBuffer(preprocessed, psm)));
+        results.push(rapid, t6, t4, t11);
       }
 
       if (meanLum < 60) {
@@ -111,6 +146,7 @@ export async function runLocalOCR(
       resultData = getBestResult(results);
     }
   } catch (e) {
+    // Last resort: plain Tesseract on the raw file.
     const result = await Tesseract.recognize(file, "eng", {
       logger: () => {},
     });
@@ -122,7 +158,9 @@ export async function runLocalOCR(
 
   const cleaned = cleanOCRText(raw_text);
   let parseText = cleaned.text;
-  if (process.env.OLLAMA_CLEAN !== "0") {
+  // Ollama clean is expensive — only run it when the text shows real
+  // OCR-garbage signals (low letter ratio / lots of short fragments).
+  if (process.env.OLLAMA_CLEAN !== "0" && needsOllamaClean(parseText)) {
     parseText = await cleanTextWithOllama(parseText);
   }
 
@@ -143,7 +181,12 @@ export async function runLocalOCR(
 
   items = crossValidate(items);
 
-  if (process.env.OLLAMA_REFINE !== "0") {
+  // Ollama refine is the single most expensive step (~15-21s warm). The
+  // deterministic parsers are already strong — only spend the call when the
+  // parse looks weak (<3 dishes or <2 priced), i.e. when the model could
+  // genuinely add value (split merged rows / fix garbled names). Clean
+  // menus skip it entirely.
+  if (process.env.OLLAMA_REFINE !== "0" && needsOllamaRefine(items)) {
     try {
       const refined = await refineWithOllama(parseText, items);
       if (refined !== items) {
@@ -155,6 +198,12 @@ export async function runLocalOCR(
   }
 
   items = splitMergedItemsFallback(items);
+
+  // Final junk gate AFTER merging: rejects venue taglines, K-price leftovers,
+  // fused-price remnants, junk suffixes — garbage the parsers let through.
+  // Runs post-split so legit fused rows ("Buffalo Wings $10.50 Mozzarella
+  // Sticks $4.00") split into clean items BEFORE the gate sees them.
+  items = items.filter((i) => !rejectJunkDish(i.name));
 
   if (items.length === 0 && process.env.OLLAMA_VISION !== "0" && inputBuffer) {
     try {
@@ -185,7 +234,33 @@ export async function runLocalOCR(
     }
   }
 
-  return { raw_text, items: items.slice(0, 50) };
+  const result = { raw_text, items: items.slice(0, 50) };
+  if (hash) ocrCacheSet(hash, result);
+  return result;
+}
+
+/** True when OCR text shows enough REAL garbage to justify the Ollama clean
+ *  call: many ≤2-char fragments or many non-letter words (pure numbers,
+ *  symbols). Addresses/phone numbers ("123 Main Street") do NOT trigger it —
+ *  they're dropped by cleaner.ts anyway and don't need an LLM round-trip. */
+function needsOllamaClean(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 40) return false; // tiny menus: not worth an LLM call
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length < 8) return false; // too few words to judge
+  const shortWords = words.filter((w) => w.length <= 2).length;
+  const nonAlphaWords = words.filter((w) => !/[A-Za-z]/.test(w)).length;
+  // Real OCR noise: lots of 1-2 char fragments OR lots of pure-number/symbol
+  // tokens. Normal menus with an address line have neither.
+  return shortWords / words.length > 0.4 || nonAlphaWords / words.length > 0.25;
+}
+
+/** True when the deterministic parse is weak enough to justify the expensive
+ *  Ollama refine (~15-21s). Same "good enough" bar menuOCRRescue uses:
+ *  ≥3 dishes with ≥2 priced means the reader+parsers did their job. */
+function needsOllamaRefine(items: LocalOCRItem[]): boolean {
+  const priced = items.filter((i) => i.price !== undefined).length;
+  return items.length < 3 || priced < 2;
 }
 
 // ═══════════════════════════════════════════════════════════════════

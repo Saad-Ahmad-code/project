@@ -5,6 +5,7 @@
 import { logger } from "@/lib/logger";
 import { searchDishImages } from "@/lib/images";
 import { chatCompletions } from "@/lib/ai/client";
+import { tagDietary } from "@/lib/agent/dietary-tags";
 import { ENRICHMENT_CONCURRENCY } from "@/lib/config";
 import type { DishResult } from "@/types/menu";
 
@@ -62,7 +63,8 @@ export async function runAgent(
           price: item.price,
           category: item.category || "other",
           origin: "",
-          dietary_tags: [],
+          // Deterministic keyword tags (no AI) so cards show badges instantly.
+          dietary_tags: tagDietary(item.name, item.description),
           images,
           confidence: 0.9,
         } as DishResult;
