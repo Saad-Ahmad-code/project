@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -9,11 +9,20 @@ import { DishCard } from "@/components/dishes/DishCard";
 import { NutritionPanel } from "@/components/NutritionPanel";
 import { RecipePanel } from "@/components/RecipePanel";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { useCsrf } from "@/hooks/useCsrf";
+import { useCsrf, fetchWithCsrf } from "@/hooks/useCsrf";
 import { useDebounce } from "@/hooks/useDebounce";
 import { SuggestionPanel, type FoodExpertSuggestion } from "@/components/SuggestionPanel";
 import { DietaryFilter } from "@/components/DietaryFilter";
 import type { MenuItem } from "@/types/menu";
+
+/** Shape returned by POST /api/dishes/details (AI food-expert endpoint). */
+interface DishDetails {
+  detailed_description: string;
+  ingredients: string[];
+  preparation: string;
+  serving_suggestions: string;
+  fun_fact: string;
+}
 
 export default function ResultsPage() {
   const params = useParams();
@@ -25,6 +34,10 @@ export default function ResultsPage() {
   const [selectedDish, setSelectedDish] = useState<MenuItem | null>(null);
   const [moreImages, setMoreImages] = useState<{ url: string; source: string }[]>([]);
   const [loadingImages, setLoadingImages] = useState(false);
+  // AI-generated dish details (fetched on click, cached per dish id)
+  const [dishDetails, setDishDetails] = useState<DishDetails | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const detailsCache = useRef(new Map<string, DishDetails>());
   const [suggestions, setSuggestions] = useState<FoodExpertSuggestion | null>(null);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
@@ -51,6 +64,7 @@ export default function ResultsPage() {
     setSelectedDish(dish);
     setMoreImages([]);
     setLoadingImages(true);
+    loadDishDetails(dish); // fire in parallel with the image fetch
     try {
       const res = await fetch(`/api/images/${encodeURIComponent(dish.name)}`);
       const data = await res.json();
@@ -60,6 +74,39 @@ export default function ResultsPage() {
       toast.error("Failed to load images");
     } finally {
       setLoadingImages(false);
+    }
+  };
+
+  /** Generate AI description/ingredients/preparation for a dish (cached per dish id). */
+  const loadDishDetails = async (dish: MenuItem) => {
+    const cached = detailsCache.current.get(dish.id);
+    if (cached) {
+      setDishDetails(cached);
+      return;
+    }
+    setLoadingDetails(true);
+    setDishDetails(null);
+    try {
+      const res = await fetchWithCsrf("/api/dishes/details", {
+        method: "POST",
+        body: JSON.stringify({
+          dishName: dish.name,
+          category: dish.category,
+          origin: dish.origin,
+          description: dish.description || dish.ai_description || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.detailed_description) {
+        detailsCache.current.set(dish.id, data as DishDetails);
+        setDishDetails(data as DishDetails);
+      }
+    } catch {
+      // Fail soft: fall back to whatever description the dish already has.
+      setDishDetails(null);
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
@@ -196,7 +243,7 @@ export default function ResultsPage() {
             />
             <NutritionPanel dishName={item.name} />
             <RecipePanel dishName={item.name} />
-            <p className="text-xs text-muted-foreground mt-1.5">Tap to see more photos</p>
+            <p className="text-xs text-muted-foreground mt-1.5">Tap for photos & details</p>
           </motion.div>
         ))}
       </div>
@@ -215,7 +262,46 @@ export default function ResultsPage() {
             >
               <DialogTitle className="text-lg font-semibold mb-2">{selectedDish.name}</DialogTitle>
 
-              {selectedDish.description && <p className="text-sm text-muted-foreground mb-4">{selectedDish.description}</p>}
+              {/* AI-generated description (generated on click, cached) */}
+              <div className="mb-4">
+                {loadingDetails && (
+                  <p className="text-sm text-muted-foreground animate-pulse">Generating description…</p>
+                )}
+                {!loadingDetails && dishDetails?.detailed_description && (
+                  <div className="space-y-3 text-sm">
+                    <p className="text-muted-foreground">{dishDetails.detailed_description}</p>
+                    {dishDetails.ingredients?.length > 0 && (
+                      <div>
+                        <h4 className="font-medium mb-1">Ingredients</h4>
+                        <p className="text-muted-foreground">{dishDetails.ingredients.join(", ")}</p>
+                      </div>
+                    )}
+                    {dishDetails.preparation && (
+                      <div>
+                        <h4 className="font-medium mb-1">Preparation</h4>
+                        <p className="text-muted-foreground">{dishDetails.preparation}</p>
+                      </div>
+                    )}
+                    {dishDetails.serving_suggestions && (
+                      <div>
+                        <h4 className="font-medium mb-1">Serving</h4>
+                        <p className="text-muted-foreground">{dishDetails.serving_suggestions}</p>
+                      </div>
+                    )}
+                    {dishDetails.fun_fact && (
+                      <div>
+                        <h4 className="font-medium mb-1">Fun fact</h4>
+                        <p className="text-muted-foreground">{dishDetails.fun_fact}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!loadingDetails && !dishDetails && (selectedDish.ai_description || selectedDish.description) && (
+                  <p className="text-sm text-muted-foreground">
+                    {selectedDish.ai_description || selectedDish.description}
+                  </p>
+                )}
+              </div>
 
               <h3 className="text-sm font-medium mb-2">Photos</h3>
 

@@ -31,14 +31,16 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "system",
-          content: `You are a knowledgeable food expert and chef. Given a dish name, provide detailed information in valid JSON format.
+          content: `You are a professional menu copywriter for a restaurant. Given a dish name, write mouth-watering, appetizing menu descriptions in valid JSON format.
+
+The description must read like it appears on a restaurant menu — evocative, flavorful, and enticing, describing what makes the dish delicious and how it's plated or served. Imagine describing the dish to a hungry customer who is about to order it. Keep it to 2-3 appetizing sentences. Do not write like an encyclopedia or food blog; write like a menu.
 
 Return ONLY a valid JSON object with these fields:
 {
-  "detailed_description": "2-3 sentence description",
+  "detailed_description": "2-3 sentence appetizing menu-style description",
   "ingredients": ["ingredient1", ...],
-  "preparation": "Brief description",
-  "serving_suggestions": "How it's served",
+  "preparation": "Brief description of how it's prepared",
+  "serving_suggestions": "How it's served (e.g. 'Served hot with garlic naan')",
   "fun_fact": "Interesting fact"
 }
 
@@ -46,10 +48,10 @@ No markdown, no code blocks, just the raw JSON.`,
         },
         {
           role: "user",
-          content: `Tell me about: ${dishName}${contextStr}`,
+          content: `Write an appetizing menu description for: ${dishName}${contextStr}`,
         },
       ],
-      temperature: 0.7,
+      temperature: 0.8,
       max_tokens: 500,
     });
 

@@ -26,6 +26,14 @@ export const providers: AiProvider[] = [
   { name: "github", baseURL: "https://models.github.ai/inference", model: "meta/llama-3.3-70b-instruct", apiKeyEnv: "GITHUB_TOKEN", priority: 13, headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" } },
   { name: "huggingface", baseURL: "https://router.huggingface.co/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKeyEnv: "HF_TOKEN", priority: 14 },
   { name: "cloudflare", baseURL: "", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", apiKeyEnv: "CLOUDFLARE_API_TOKEN", priority: 15, headers: { "cf-aig-gateway-id": "default" } },
+  // Local open-source LLM (Ollama) — free, unlimited, fully offline. Uses
+  // OpenAI-compatible /v1 endpoint; no API key. Active when OLLAMA_URL is set
+  // (default http://localhost:11434). Model must be pulled locally, e.g.
+  //   ollama pull llama3.2:3b   ← small, fast chat model (2GB)
+  //   ollama pull gemma4:e2b    ← used for OCR refine/vision (see ollama.ts)
+  // llama3.2:3b is used here because llama3:latest (meta-llama/Llama-3.2B)
+  // does not support the /v1/chat endpoint in current Ollama builds.
+  { name: "ollama", baseURL: "http://localhost:11434/v1", model: "llama3.2:3b", apiKeyEnv: "OLLAMA_URL", priority: 9 },
 ];
 
 export function getCloudflareBaseURL(): string {

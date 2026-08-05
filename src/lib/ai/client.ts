@@ -224,8 +224,9 @@ function isTransientFailure(msg: string): boolean {
 // Retries on transient failures (5xx, 429, network errors) with exponential
 // backoff. Non-retryable errors (401, 404) fail immediately.
 async function callProvider(provider: { name: string; baseURL: string; model: string; apiKeyEnv: string; headers?: Record<string, string> }, opts: ChatOptions): Promise<{ choices: { message: { content: string } }[] }> {
-  const apiKey = process.env[provider.apiKeyEnv];
-  if (!apiKey) throw new Error(`No API key for ${provider.name}`);
+  // Local Ollama needs no API key (its /v1 endpoint is unauthenticated).
+  const apiKey = provider.name === "ollama" ? "" : process.env[provider.apiKeyEnv];
+  if (!apiKey && provider.name !== "ollama") throw new Error(`No API key for ${provider.name}`);
 
   const MAX_RETRIES = AI_MAX_RETRIES;
   const BASE_DELAY_MS = AI_BASE_DELAY_MS;
@@ -244,7 +245,7 @@ async function callProvider(provider: { name: string; baseURL: string; model: st
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          ...(provider.name === "ollama" ? {} : { Authorization: `Bearer ${apiKey}` }),
           ...provider.headers,
         },
         body: JSON.stringify(body),
@@ -430,7 +431,10 @@ export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string)
 // ── Exported: chatCompletions (multi-provider fallback) ──
 export async function chatCompletions(opts: ChatOptions): Promise<{ choices: { message: { content: string } }[] }> {
   const available = providers
-    .filter((p) => !!process.env[p.apiKeyEnv] && (p.name !== "cloudflare" || !!process.env.CLOUDFLARE_ACCOUNT_ID))
+    .filter((p) =>
+      (p.name === "ollama" ? true : !!process.env[p.apiKeyEnv]) &&
+      (p.name !== "cloudflare" || !!process.env.CLOUDFLARE_ACCOUNT_ID)
+    )
     .sort((a, b) => a.priority - b.priority);
 
   if (available.length === 0) {
@@ -464,7 +468,9 @@ export async function chatCompletions(opts: ChatOptions): Promise<{ choices: { m
     try {
       const providerWithURL = provider.name === "cloudflare"
         ? { ...provider, baseURL: getCloudflareBaseURL() }
-        : provider;
+        : provider.name === "ollama"
+          ? { ...provider, baseURL: `${process.env.OLLAMA_URL || "http://localhost:11434"}/v1` }
+          : provider;
       const result = await callProvider(providerWithURL, opts);
       if (!result?.choices?.[0]?.message?.content) {
         throw new Error(`${provider.name} returned empty content`);
