@@ -36,8 +36,11 @@ export interface CleanResult {
   merged: number;
 }
 
-const PRICE_ONLY = /^[$€£¥]?\s*\d{1,4}(?:[.,]\d{1,2})?[\s.]*$/;
-const HAS_PRICE = /[$€£¥]\s*\d|\b\d{1,3}[.,]\d{1,2}\b/;
+const PRICE_ONLY = /^[$€£¥₹]?\s*\d{1,4}(?:[.,]\d{1,2})?[\s.]*$/;
+const HAS_PRICE = /[$€£¥₹]\s*\d|\b\d{1,3}[.,]\d{1,2}\b/;
+/** OCR misreads the rupee glyph as katakana き/キ or Rs — a line/word like
+ *  "き250" is a price, not a name fragment. */
+const HAS_MISREAD_RUPEE_PRICE = /(?:き|キ|Rs)\s*\d{2,4}\b/i;
 
 // ── Noise detectors (a line matching ANY of these is dropped) ──
 
@@ -103,7 +106,7 @@ function isCategoryHeader(text: string): boolean {
 export function classifyLine(text: string): CleanLineKind {
   const t = text.trim();
   if (!t || SYMBOLS_ONLY.test(t)) return "noise";
-  if (PRICE_ONLY.test(t)) return "price";
+  if (PRICE_ONLY.test(t) || HAS_MISREAD_RUPEE_PRICE.test(t)) return "price";
   if (isCategoryHeader(t)) return "header";
 
   // Noise detectors — checked after price/header so a priced line or an

@@ -72,6 +72,15 @@ export function isHeaderLike(text: string, hasPrice: boolean, isCentered: boolea
 
   const firstWord = lineWords[0]?.toLowerCase();
   const lastWord = lineWords[lineWords.length - 1]?.toLowerCase();
+
+  // A multi-word Title-case line whose words are ALL food-related is a DISH,
+  // not a header — "Orange Juice", "Iced Tea", "Chicken Curry" are menu
+  // items even though "juice"/"tea" are also category keywords. This does NOT
+  // apply to all-caps venue titles ("STEEL & OAK") which must stay headers.
+  const isTitleCase = text.trim() !== text.trim().toUpperCase() && /^[A-Z][a-z]/.test(text.trim());
+  const allFoodRelated = isTitleCase && lineWords.length >= 2 && lineWords.every(w => isFoodRelated(w.toLowerCase()));
+  if (allFoodRelated) return false;
+
   if (firstWord && CATEGORY_KEYWORDS.has(firstWord)) return true;
   if (lastWord && CATEGORY_KEYWORDS.has(lastWord)) return true;
 
@@ -219,7 +228,7 @@ export function classifyMenuText(rawText: string): { priceRatio: number; avgLine
   let priceLines = 0;
   let totalLen = 0;
   for (const line of lines) {
-    if (/\$\s*\d/.test(line) || /\d+\.\d{2}/.test(line)) priceLines++;
+    if (/\$\s*\d/.test(line) || /\d+\.\d{2}/.test(line) || /[$€£¥₹]\s*\d/.test(line) || /(?:き|キ|Rs)\s*\d{2,4}\b/i.test(line)) priceLines++;
     totalLen += line.length;
   }
 

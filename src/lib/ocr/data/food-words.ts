@@ -11,6 +11,7 @@ export function isFoodRelated(word: string): boolean {
     /^(cake|pie|cookie|brownie|muffin|donut|doughnut|mousse|candy|tiramisu)$/.test(w) ||
     /^(cheesecake|pavlova|eclair|profiterole|parfait|trifle)$/.test(w) ||
     /^(coffee|latte|cappuccino|espresso|mocha|chai|tea|soda|juice)$/.test(w) ||
+    /^(iced|lemon|green|masala|herbal|mint|ginger)\s*(tea)?$/i.test(w) ||
     /^(lemonade|shake|smoothie|mocktail|cocktail|beer|wine)$/.test(w) ||
     /^(grilled|roast|roasted|fried|baked|smoked|steamed|pan|stir)$/.test(w) ||
     /^(bbq|buffalo|honey|garlic|spicy|tangy|sweet|sour)$/.test(w) ||

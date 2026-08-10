@@ -165,7 +165,7 @@ export async function runLocalOCR(
   }
 
   const words: WordPos[] = rawWords
-    .filter((w: any) => (w.confidence ?? 0) >= 25)
+    .filter((w: any) => (w.confidence ?? 0) >= 10)
     .map((w: any) => ({
       text: w.text || "",
       x: w.bbox?.x0 ?? 0,

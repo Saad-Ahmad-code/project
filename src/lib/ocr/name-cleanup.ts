@@ -55,6 +55,11 @@ export function cleanDishName(raw: string): string {
   // Caramel Milk"); the trailing one is already extracted as a price.
   name = name.replace(/\b\d{1,4}\s*[Kk]\b/g, " ").replace(/\s+/g, " ").trim();
 
+  // Residual OCR-misread-rupee tokens ("き250", "S250") that survived price
+  // extraction — strip the symbol so it never pollutes the dish name.
+  name = name.replace(/(?:き|キ)\s*\d{2,4}\b/g, " ").replace(/\s+/g, " ").trim();
+  name = name.replace(/\s+S\d{2,4}\b/g, " ").replace(/\s+/g, " ").trim();
+
   if (name.length > 3) {
     name = name.replace(/\s+S$/, "").trim();
   }

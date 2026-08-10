@@ -38,6 +38,11 @@ export const OCR_CORRECTIONS: [RegExp, string][] = [
   [/sai?mon/gi, "Salmon"], [/risoh[o0]/gi, "Risotto"], [/tiramis[uv]/gi, "Tiramisu"],
   [/stake\b/gi, "Steak"], [/shr[i1]p\b/gi, "Shrimp"], [/tnew\s*york\b/gi, "New York"],
   [/fal[uv]da\b/gi, "Falooda"],
+  // Tesseract misreads the Indian rupee symbol ₹ (U+20B9) as katakana
+  // き/キ (or Rs/rs) when it can't classify the glyph — map it back so
+  // price detection treats the number as a price, not a name fragment.
+  [/[きキ]\s*(?=\d)/g, "₹"],
+  [/Rs\.?\s*(?=\d{2,4}\b)/gi, "₹"],
   [/aperol[^\s]*\s*sprlz/gi, "Aperol Spritz"],
   [/margarit[as]/gi, "Margarita"], [/martin[i]s/gi, "Martini"],
   [/gvozas?/gi, "Gyoza"], [/dvmplings?/gi, "Dumpling"],
