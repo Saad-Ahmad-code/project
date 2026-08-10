@@ -23,12 +23,14 @@
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/storage';
 import { runAgent } from '@/lib/agent';
+import { generateDishDetails } from '@/lib/agent/dish-details';
 import type { MenuItemInput } from '@/lib/agent';
 import {
   WORKER_POLL_MS,
   WORKER_MAX_CONCURRENT,
   AGENT_MAX_RETRIES,
   AGENT_RETRY_BASE_DELAY_MS,
+  PREWARM_DISH_LIMIT,
 } from '@/lib/config';
 import type { AgentJobDoc, ScanDoc, DishDoc, AgentLogDlqDoc } from '@/lib/db-types';
 
@@ -309,6 +311,24 @@ export async function processJob(job: AgentJob): Promise<boolean> {
       enriched: true,
       status: 'completed',
     });
+
+    // Pre-warm AI details for the first N dishes (fire-and-forget, never
+    // awaited) so the results page shows descriptions immediately without
+    // waiting for clicks. Runs AFTER the batched write-back so the batch
+    // can't overwrite a freshly generated ai_description. The remaining
+    // dishes generate on-demand when clicked.
+    for (const dish of dishes.slice(0, PREWARM_DISH_LIMIT)) {
+      void generateDishDetails({
+        dishName: dish.name,
+        category: dish.category || undefined,
+        description: dish.description || undefined,
+        id: dish._id,
+      })
+        .then(() => logger.info(`[AgentQueue] Pre-warmed details for "${dish.name}"`))
+        .catch((err: Error) =>
+          logger.warn(`[AgentQueue] Pre-warm details failed for "${dish.name}": ${err.message}`)
+        );
+    }
 
     // Mark job complete (record dish_errors so partial failures are visible)
     updateJob(id, {

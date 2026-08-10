@@ -52,6 +52,10 @@ export const APP_CONFIG = {
     retryBaseDelayMs: 5_000,
     /** Dish research/image-search concurrency inside one job */
     enrichmentConcurrency: 3,
+    /** First N dishes per scan get AI details pre-generated in the
+     *  background (fire-and-forget) so the results page shows descriptions
+     *  without waiting for clicks; the rest generate on demand. */
+    prewarmDishLimit: 6,
   },
   researchCache: {
     /** Dish research cache TTL for successful lookups */
@@ -90,6 +94,7 @@ export const WORKER_MAX_CONCURRENT = APP_CONFIG.queue.workerMaxConcurrent;
 export const AGENT_MAX_RETRIES = APP_CONFIG.queue.maxRetries;
 export const AGENT_RETRY_BASE_DELAY_MS = APP_CONFIG.queue.retryBaseDelayMs;
 export const ENRICHMENT_CONCURRENCY = APP_CONFIG.queue.enrichmentConcurrency;
+export const PREWARM_DISH_LIMIT = APP_CONFIG.queue.prewarmDishLimit;
 
 export const RESEARCH_HIT_TTL_MS = APP_CONFIG.researchCache.hitTtlMs;
 export const RESEARCH_MISS_TTL_MS = APP_CONFIG.researchCache.missTtlMs;
