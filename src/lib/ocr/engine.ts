@@ -14,6 +14,7 @@
  */
 
 import { logger } from '@/lib/logger';
+import { APP_CONFIG } from '@/lib/config';
 
 // ── Types ──
 
@@ -174,7 +175,8 @@ async function layer2SharpTesseract(
 
 async function layer3AIVision(
   imageBuffer: ArrayBuffer,
-  send: ProgressCallback
+  send: ProgressCallback,
+  signal?: AbortSignal
 ): Promise<OCRResult | null> {
   send('status', { status: 'ocr_layer3', progress: 65, message: 'Layer 3: AI Vision analysis...' });
 
@@ -187,9 +189,16 @@ Rules:
 - If a field is not visible, omit it
 - If no dishes are identifiable, return {"items":[],"error":"reason"}`;
 
+  // Total deadline across ALL provider attempts — Tesseract usually wins the
+  // race long before this; the cap stops worst-case provider hangs from
+  // eating the client's SSE window.
+  const deadlineSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(APP_CONFIG.ocr.visionTimeoutMs)])
+    : AbortSignal.timeout(APP_CONFIG.ocr.visionTimeoutMs);
+
   try {
     const { callGeminiVision } = require('@/lib/ai/client');
-    const response = await callGeminiVision(imageBuffer, visionPrompt);
+    const response = await callGeminiVision(imageBuffer, visionPrompt, deadlineSignal);
 
     if (!response || response.length < 10) return null;
 
@@ -217,7 +226,12 @@ Rules:
       return null;
     }
   } catch (err: any) {
-    logger.warn(`[OCR] Layer 3 failed: ${err.message?.slice(0, 100)}`);
+    if (signal?.aborted || /abort|timed?\s?out/i.test(String(err?.message))) {
+      // Expected when Tesseract won the race or the deadline fired — not a failure.
+      logger.info(`[OCR] Layer 3 cancelled or timed out: ${err.message?.slice(0, 80)}`);
+    } else {
+      logger.warn(`[OCR] Layer 3 failed: ${err.message?.slice(0, 100)}`);
+    }
     return null;
   }
 }
@@ -263,28 +277,34 @@ export async function runOCRPipeline(
 
   send('status', { status: 'ocr_started', progress: 10, message: 'Starting OCR analysis…' });
 
-  // Run Tesseract and AI Vision in PARALLEL — whichever finishes first with
-  // good results wins. This cuts scan time from ~20-60s (sequential) to
-  // ~8-15s (whichever completes last is the only wait).
+  // Run Tesseract and AI Vision in PARALLEL with an early-exit race.
+  // Tesseract is local and usually lands within seconds; the moment it
+  // returns clean results we respond and CANCEL the slow, quota-burning
+  // vision call instead of waiting for it. Vision is only awaited when
+  // Tesseract came back empty or garbled.
+  const visionAbort = new AbortController();
+
   const tesseractPromise = layer1TesseractJS(imageBuffer, send).catch((e: any) => {
     logger.warn(`[OCR] Tesseract layer failed: ${e.message?.slice(0, 100)}`);
     return null as OCRResult | null;
   });
 
-  const visionPromise = layer3AIVision(imageBuffer, send).catch((e: any) => {
+  const visionPromise = layer3AIVision(imageBuffer, send, visionAbort.signal).catch((e: any) => {
     logger.warn(`[OCR] Vision layer failed: ${e.message?.slice(0, 100)}`);
     return null as OCRResult | null;
   });
 
-  // Fire both concurrently
-  const [tesseractResult, visionResult] = await Promise.all([tesseractPromise, visionPromise]);
+  const tesseractResult = await tesseractPromise;
 
   // Prefer Tesseract if it got clean, non-garbled results (fast + local)
   if (tesseractResult && tesseractResult.items.length >= 2 && !isGarbledResult(tesseractResult)) {
-    logger.info(`[OCR] Tesseract won: ${tesseractResult.items.length} items`);
+    logger.info(`[OCR] Tesseract won early: ${tesseractResult.items.length} items`);
+    visionAbort.abort(new Error('tesseract-won'));
     cacheSet(hash, tesseractResult);
     return tesseractResult;
   }
+
+  const visionResult = await visionPromise;
 
   // AI Vision result is always usable if it found anything (higher accuracy)
   if (visionResult && visionResult.items.length >= 1) {

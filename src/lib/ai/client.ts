@@ -283,7 +283,17 @@ async function callProvider(provider: { name: string; baseURL: string; model: st
 }
 
 // ── Gemini Direct Vision ──
-async function callGeminiDirect(imageBuffer: ArrayBuffer, prompt: string): Promise<string> {
+/** Combine an external abort signal with a per-attempt timeout. */
+function combineSignals(signal: AbortSignal | undefined, timeoutMs?: number): AbortSignal | undefined {
+  const parts: AbortSignal[] = [];
+  if (signal) parts.push(signal);
+  if (timeoutMs) parts.push(AbortSignal.timeout(timeoutMs));
+  if (parts.length === 0) return undefined;
+  if (parts.length === 1) return parts[0];
+  return AbortSignal.any(parts);
+}
+
+async function callGeminiDirect(imageBuffer: ArrayBuffer, prompt: string, signal?: AbortSignal): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
@@ -302,7 +312,7 @@ async function callGeminiDirect(imageBuffer: ArrayBuffer, prompt: string): Promi
       }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 4000, responseMimeType: "application/json" },
     }),
-    signal: AbortSignal.timeout(60000),
+    signal: combineSignals(signal, 60000),
   });
 
   if (!res.ok) {
@@ -317,7 +327,7 @@ async function callGeminiDirect(imageBuffer: ArrayBuffer, prompt: string): Promi
 }
 
 // ── OpenRouter Vision ──
-async function callOpenRouterVision(imageBuffer: ArrayBuffer, prompt: string, model: string, timeout = 90000): Promise<string> {
+async function callOpenRouterVision(imageBuffer: ArrayBuffer, prompt: string, model: string, timeout = 90000, signal?: AbortSignal): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured");
 
@@ -342,7 +352,7 @@ async function callOpenRouterVision(imageBuffer: ArrayBuffer, prompt: string, mo
       temperature: 0.1,
       max_tokens: 4096,
     }),
-    signal: AbortSignal.timeout(timeout),
+    signal: combineSignals(signal, timeout),
   });
 
   if (!res.ok) {
@@ -357,8 +367,14 @@ async function callOpenRouterVision(imageBuffer: ArrayBuffer, prompt: string, mo
 }
 
 // ── Exported: callGeminiVision (multi-provider fallback) ──
-export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string): Promise<string> {
+export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string, signal?: AbortSignal): Promise<string> {
   const errors: string[] = [];
+  // Cooperative cancellation: when the OCR pipeline's early-exit race decides
+  // Tesseract already won, remaining provider attempts are skipped so we don't
+  // burn quota/latency on a result nobody will read.
+  const checkAborted = () => {
+    if (signal?.aborted) throw new Error("vision-aborted by caller");
+  };
 
   // Try OpenRouter vision models
   // OpenRouter free models share a single daily quota (50 req/day) — once
@@ -367,13 +383,14 @@ export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string)
   if (process.env.OPENROUTER_API_KEY) {
     let openRouterRateLimited = false;
     for (const model of VISION_MODELS) {
+      checkAborted();
       if (openRouterRateLimited) {
         logger.warn({ message: `Vision model ${model} skipped: OpenRouter already rate-limited` });
         continue;
       }
       try {
         logger.info({ message: "Trying vision model", model });
-        return await callOpenRouterVision(imageBuffer, prompt, model);
+        return await callOpenRouterVision(imageBuffer, prompt, model, 90000, signal);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`${model}: ${msg}`);
@@ -389,9 +406,10 @@ export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string)
   }
 
   // Try Gemini direct
+  checkAborted();
   if (process.env.GEMINI_API_KEY) {
     try {
-      return await callGeminiDirect(imageBuffer, prompt);
+      return await callGeminiDirect(imageBuffer, prompt, signal);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Gemini: ${msg}`);
@@ -399,6 +417,7 @@ export async function callGeminiVision(imageBuffer: ArrayBuffer, prompt: string)
   }
 
   // Try Python OCR
+  checkAborted();
   try {
     logger.info({ message: "Trying Python OCR fallback" });
     const result = await pythonOCR(imageBuffer);

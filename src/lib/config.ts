@@ -40,6 +40,11 @@ export const APP_CONFIG = {
     ollamaTimeoutMs: 30_000,
     /** Max raw OCR text fed to Ollama per call */
     maxRawText: 6000,
+    /** Total budget for the AI-vision OCR layer (all provider attempts
+     *  combined) in the default scan pipeline. Tesseract usually wins the
+     *  race well before this; the cap just stops worst-case hangs from
+     *  eating the client's 120s SSE window. */
+    visionTimeoutMs: 25_000,
   },
   queue: {
     /** Background worker poll interval */

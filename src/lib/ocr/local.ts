@@ -282,6 +282,9 @@ export async function runLocalOCR(
   let inputBuffer: Buffer | null = null;
   let hash = "";
   let candidateResults: Array<OCRCandidate | null> = [];
+  // Ollama vision call, started early inside the try below and awaited at the
+  // merge point after it — runs concurrently with the deterministic pipeline.
+  let visionPromise: ReturnType<typeof ollamaVisionOCR> | null = null;
 
   try {
     inputBuffer = Buffer.isBuffer(file as unknown)
@@ -292,6 +295,18 @@ export async function runLocalOCR(
     hash = createHash("sha256").update(inputBuffer).digest("hex").slice(0, 32);
     const cached = await ocrCacheGet(hash);
     if (cached) return cached;
+
+    // Kick off Ollama vision IMMEDIATELY — it reads the raw image directly
+    // and doesn't depend on any deterministic work below, so run it
+    // concurrently with the Tesseract/clean/parse pipeline. Awaited at the
+    // merge point near the end of this function.
+    visionPromise =
+      process.env.OLLAMA_VISION !== "0"
+        ? ollamaVisionOCR(inputBuffer).catch((e: unknown) => {
+            logger.warn(`[OCR] Vision error: ${e}`);
+            return null;
+          })
+        : null;
 
     try {
       const sharp = await loadSharp();
@@ -434,12 +449,12 @@ export async function runLocalOCR(
   // Ollama vision — reads the menu IMAGE directly (true OCR: image in, text out).
   // Vision is the PRIMARY reader. When it returns items, ALWAYS use them —
   // a vision model reading the actual image is more accurate than Tesseract
-  // garbling decorative fonts.
-  logger.info(`[OCR] Vision check: OLLAMA_VISION=${process.env.OLLAMA_VISION}, inputBuffer=${inputBuffer ? 'yes' : 'no'}`);
-  if (process.env.OLLAMA_VISION !== "0" && inputBuffer) {
+  // garbling decorative fonts. The call was started at the top of this
+  // function so it overlaps the deterministic pipeline; here we only collect.
+  if (visionPromise) {
     try {
-      logger.info(`[OCR] Calling ollamaVisionOCR...`);
-      const vis = await ollamaVisionOCR(inputBuffer);
+      logger.info(`[OCR] Collecting parallel ollamaVisionOCR result...`);
+      const vis = await visionPromise;
       logger.info(`[OCR] Vision returned: ${vis ? `alphaWordCount=${vis.alphaWordCount}` : 'null'}`);
       if (vis && vis.alphaWordCount >= 3) {
         const visText = vis.data.text.trim();
