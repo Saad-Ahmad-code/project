@@ -7,6 +7,10 @@ export const DISH_PREFIX_WORDS =
   /^(extra|serves?|for|with|choice|add|plus|and|side|to|feeds?|serving|one|two|three|four|half|full|large|small|medium|regular|double|kids?|choose|ask|please)\b/i;
 
 export function splitMergedDishLine(name: string, trailingPrice?: number): { name: string; price?: number }[] | null {
+  // Currency-aware mid-price: `$8`, `€12`, `₹250`, `き200` (OCR misread of
+  // ₹), `S250`/`Z100`/`Rs250`, or a bare number. "Cocktails ₹200 Nuggets
+  // ₹300" must split. The currency is ATOMIC with its digits so "$8" is one
+  // token; the optional `\s*` must not swallow the separator before it.
   const m = name.match(
     new RegExp(`^(.*?)\\s+([${CURRENCY_SYMBOLS}]\\s*\\d+(?:[.,]\\d{1,2}|\\s+\\d{2})?|\\d+[.,]\\d{1,2}|\\d+\\s+\\d{2}|\\d{2,3})\\s+([A-Za-z0-9${CURRENCY_SYMBOLS}][A-Za-z0-9${CURRENCY_SYMBOLS}&'-]*(\\s+[A-Za-z0-9${CURRENCY_SYMBOLS}][A-Za-z0-9${CURRENCY_SYMBOLS}&'-]*)*)$`)
   );

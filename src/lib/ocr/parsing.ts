@@ -857,7 +857,7 @@ export function parseResultData(resultData: any, cleanedText?: string): LocalOCR
   const parseText = cleanedText !== undefined && cleanedText.trim() ? cleanedText : cleaned.text;
 
   const words: WordPos[] = rawWords
-    .filter((w: any) => (w.confidence ?? 0) >= 25)
+    .filter((w: any) => (w.confidence ?? 0) >= 10)
     .map((w: any) => ({
       text: w.text || "",
       x: w.bbox?.x0 ?? 0,

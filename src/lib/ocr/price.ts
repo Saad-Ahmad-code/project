@@ -13,6 +13,9 @@ export interface PriceResult {
 export function normalizePrice(raw: string): number | null {
   let s = raw.trim();
 
+  // NOTE: the class MUST include "." — script-font OCR emits ".$9,00....."
+  // (leading dot + dotted leader), and stripping it is what lets the
+  // comma-decimal conversion below see "9,00" instead of ".9,00".
   s = s.replace(new RegExp(`^[${CURRENCY_SYMBOLS}Rs.\\s]+`, "i"), "");
   s = s.replace(new RegExp(`[${CURRENCY_SYMBOLS}.\\s]+$`, "i"), "");
 
@@ -152,6 +155,18 @@ export function findPriceInText(text: string): PriceResult | null {
     }
   }
 
+  // Trailing misread-rupee price: "Cheeseburger キ200" / "Coffee Z90".
+  // Handled separately because キ/Z are not in CURRENCY_SYMBOLS (き is).
+  // The bare-digit fallback in the trailing regex above already reads the
+  // digits, but this branch keeps `raw` faithful to what OCR emitted.
+  const trailingMisread = t.match(/(?:^|\s)(?:[きキZz])(\d{2,4})[\s.]*$/);
+  if (trailingMisread) {
+    const n = parseInt(trailingMisread[1], 10);
+    if (!isNaN(n) && n > 0 && n < 2000) {
+      return { price: n, raw: trailingMisread[0].trim(), position: "trailing" };
+    }
+  }
+
   const leading = t.match(new RegExp(`^[${CURRENCY_SYMBOLS}Rs.]+(\\d{1,3}(?:[.,]\\d{1,2})?)\\s+`));
   if (leading) {
     const price = normalizePrice(leading[0]);
@@ -169,6 +184,31 @@ export function findPriceInWord(word: string): PriceResult | null {
   if (k) {
     const n = kPriceValue(k[0]);
     if (n !== null) return { price: n, raw: k[0].trim(), position: "standalone" };
+  }
+
+  // OCR-misread-rupee token: "キ250" / "Z100" (Tesseract's guesses for the ₹
+  // glyph; き is already in CURRENCY_SYMBOLS). A [symbol][digits] token with
+  // no letters is a price, never a dish name.
+  const misread = word.match(/^(?:[きキ]|[Zz])(\d{2,4})$/);
+  if (misread) {
+    const n = parseInt(misread[1], 10);
+    if (!isNaN(n) && n > 0 && n < 2000) {
+      return { price: n, raw: word.trim(), position: "standalone" };
+    }
+  }
+
+  // 4-digit rupee-misread token: "2300", "0012", "き2300" — OCR digit
+  // misreads of ₹300/₹120 (the leading digit is often wrong). These are
+  // real prices on rupee menus; the <2000 guard is relaxed for them so the
+  // merged-row splitter can separate the dishes. EXCLUDES 19xx/20xx — those
+  // are years ("Est. 2011"), not prices.
+  const fourDigit = word.match(/^(?:[きキ]|[Zz]|[$€£¥₹]|Rs\.?)?(\d{4})$/i);
+  if (fourDigit) {
+    const n = parseInt(fourDigit[1], 10);
+    const isYear = /^(19|20)\d{2}$/.test(fourDigit[1]);
+    if (!isNaN(n) && n > 0 && !isYear) {
+      return { price: n, raw: word.trim(), position: "standalone" };
+    }
   }
 
   const m = word.match(new RegExp(`^[${CURRENCY_SYMBOLS}Rs.]+(\\d{1,3}(?:[.,]\\d{1,2})?)$`, "i"));

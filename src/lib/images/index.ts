@@ -184,7 +184,7 @@ async function searchDishImagesImpl(dishName: string): Promise<ImageResult[]> {
     sources.map((source) =>
       withTimeout(
         (signal: AbortSignal) => source.search(dishName, signal),
-        10000,
+        6000,
         { name: `${source.name} search for "${dishName}"` }
       )
     )
