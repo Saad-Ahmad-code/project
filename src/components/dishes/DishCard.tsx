@@ -1,8 +1,9 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ProgressiveImage } from "@/components/ui/progressive-image";
 
 interface DishCardProps {
   id: string;
@@ -18,17 +19,13 @@ interface DishCardProps {
 }
 
 export const DishCard = memo(function DishCard({ id, name, description, price, category, image_url, confidence, dietary_tags, ai_description, onRegenerate }: DishCardProps) {
-  const [imageError, setImageError] = useState(false);
-
   return (
     <Card className="flex flex-row gap-4 p-4">
-      {image_url && !imageError && (
-        <img
+      {image_url && (
+        <ProgressiveImage
           src={image_url}
           alt={name}
-          loading="lazy"
-          onError={() => setImageError(true)}
-          className="w-[120px] h-[120px] object-cover rounded-lg shrink-0"
+          className="w-[120px] h-[120px] rounded-lg shrink-0"
         />
       )}
       <div className="flex-1 min-w-0 space-y-1">

@@ -3,6 +3,7 @@
  * (with timeouts), filters non-food results, scores, and ranks them.
  */
 import { logger } from "@/lib/logger";
+import { APP_CONFIG } from "@/lib/config";
 import { NON_FOOD_KEYWORDS, FOOD_EXCLUSION_KEYWORDS, FOOD_PATTERNS } from "@/lib/images/keywords";
 import { searchUnsplash } from "@/lib/images/unsplash";
 import { searchPexels } from "@/lib/images/pexels";
@@ -152,8 +153,44 @@ const sources: ImageSource[] = [
 // In-flight dedup map for image search
 const inFlightImages = new Map<string, Promise<ImageResult[]>>();
 
+// TTL cache — a dish's photos rarely change, so repeated taps (gallery
+// opens, prefetches, re-scans) should not re-fan-out to 8 providers.
+// Hits are cached for days; misses only briefly so new sources get
+// another shot soon. Bounded by maxEntries (FIFO eviction).
+interface ImageCacheEntry {
+  results: ImageResult[];
+  ts: number;
+}
+const imageCache = new Map<string, ImageCacheEntry>();
+
+function cachedImageSearch(key: string): ImageResult[] | null {
+  const entry = imageCache.get(key);
+  if (!entry) return null;
+  const ttl = entry.results.length > 0 ? APP_CONFIG.researchCache.hitTtlMs : APP_CONFIG.researchCache.missTtlMs;
+  if (Date.now() - entry.ts > ttl) {
+    imageCache.delete(key);
+    return null;
+  }
+  return entry.results;
+}
+
+function cacheImageSearch(key: string, results: ImageResult[]) {
+  if (imageCache.size >= APP_CONFIG.researchCache.maxEntries) {
+    const oldest = imageCache.keys().next().value;
+    if (oldest !== undefined) imageCache.delete(oldest);
+  }
+  imageCache.set(key, { results, ts: Date.now() });
+}
+
 export async function searchDishImages(dishName: string): Promise<ImageResult[]> {
   const key = dishName.trim().toLowerCase();
+
+  // TTL cache first — instant response for repeat taps/prefetches.
+  const cached = cachedImageSearch(key);
+  if (cached) {
+    logger.info(`[Images] Cache ${cached.length > 0 ? "hit" : "negative hit"} for "${dishName}"`);
+    return cached;
+  }
 
   // In-flight dedup — share results across concurrent callers (e.g., the same
   // dish appearing in multiple scans processed by the 3-worker pool).
@@ -166,7 +203,9 @@ export async function searchDishImages(dishName: string): Promise<ImageResult[]>
   inFlightImages.set(key, promise);
 
   try {
-    return await promise;
+    const results = await promise;
+    cacheImageSearch(key, results);
+    return results;
   } finally {
     inFlightImages.delete(key);
   }

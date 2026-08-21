@@ -7,7 +7,7 @@ import { requireCsrf } from "@/lib/csrf";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ dish: string }> }) {
   try {
-    if (!checkRateLimit(getClientIp(request))) {
+    if (!checkRateLimit(getClientIp(request), 30, 60_000, "images")) {
       return NextResponse.json({ images: [], error: "Too many requests. Wait a minute and try again." }, { status: 429 });
     }
 
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const csrfError = requireCsrf(request);
     if (csrfError) return csrfError;
 
-    if (!checkRateLimit(getClientIp(request))) {
+    if (!checkRateLimit(getClientIp(request), 30, 60_000, "images")) {
       return NextResponse.json({ images: [], error: "Too many requests. Wait a minute and try again." }, { status: 429 });
     }
 

@@ -30,11 +30,17 @@ export function getClientIp(request: NextRequest): string {
  * Returns true when the request is allowed, false when it exceeds `max`
  * requests within `windowMs`. Prunes expired entries when the store grows
  * past MAX_ENTRIES so a burst of distinct IPs can't leak memory forever.
+ *
+ * `bucket` namespaces the counter (e.g. "images" vs "scans") so browsing
+ * photo galleries doesn't eat the scan budget — previously ALL routes
+ * shared one 10/min pool per IP and heavy gallery use caused spurious 429s
+ * on unrelated endpoints.
  */
 export function checkRateLimit(
   ip: string,
   max = 10,
-  windowMs = 60_000
+  windowMs = 60_000,
+  bucket = "default"
 ): boolean {
   if (store.size > MAX_ENTRIES) {
     const now = Date.now();
@@ -44,9 +50,10 @@ export function checkRateLimit(
   }
 
   const now = Date.now();
-  const entry = store.get(ip);
+  const key = `${bucket}:${ip}`;
+  const entry = store.get(key);
   if (!entry || now > entry.resetAt) {
-    store.set(ip, { count: 1, resetAt: now + windowMs });
+    store.set(key, { count: 1, resetAt: now + windowMs });
     return true;
   }
   entry.count += 1;

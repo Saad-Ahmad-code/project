@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -9,6 +9,8 @@ import { useCsrf } from "@/hooks/useCsrf";
 import { compressImage } from "@/lib/image-compress";
 import { DishCard } from "@/components/dishes/DishCard";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ProgressiveImage } from "@/components/ui/progressive-image";
+import { usePhotoPrefetch } from "@/hooks/usePhotoPrefetch";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,6 +65,14 @@ export default function ScanPage() {
   useEffect(() => {
     if (error) toast.error(error);
   }, [error]);
+
+  // Warm photo galleries for offline-scan results too (AI scans redirect to
+  // /results, which runs its own prefetch).
+  const localItemNames = useMemo(
+    () => localItems.map((i) => i.name),
+    [localItems]
+  );
+  usePhotoPrefetch(localItemNames, localItems.length > 0);
 
   useEffect(() => {
     if (suggestionsError) toast.error(suggestionsError);
@@ -446,7 +456,7 @@ export default function ScanPage() {
                 layout
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25, delay: index * 0.05 }}
+                transition={{ duration: 0.25, delay: Math.min(index * 0.05, 0.4) }}
               >
                 <LocalDishItem item={item} />
               </motion.div>
@@ -524,7 +534,7 @@ function LocalDishItem({ item }: { item: LocalOCRItem }) {
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {moreImages.map((img) => (
-                  <img key={img.url} src={img.url} alt={item.name} className="w-full rounded-lg" />
+                  <ProgressiveImage key={img.url} src={img.url} alt={item.name} className="w-full rounded-lg" />
                 ))}
               </div>
 

@@ -10,8 +10,10 @@ import { RegenerateCard } from "@/components/dishes/RegenerateCard";
 import { NutritionPanel } from "@/components/NutritionPanel";
 import { RecipePanel } from "@/components/RecipePanel";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ProgressiveImage } from "@/components/ui/progressive-image";
 import { useCsrf, fetchWithCsrf } from "@/hooks/useCsrf";
 import { useDebounce } from "@/hooks/useDebounce";
+import { usePhotoPrefetch } from "@/hooks/usePhotoPrefetch";
 import { SuggestionPanel, type FoodExpertSuggestion } from "@/components/SuggestionPanel";
 import { DietaryFilter } from "@/components/DietaryFilter";
 import type { MenuItem } from "@/types/menu";
@@ -214,6 +216,11 @@ export default function ResultsPage() {
   // into ONE filteredItems recomputation instead of one per click.
   const debouncedPrefs = useDebounce(dietPrefs, 150);
 
+  // Warm photo galleries for the first dishes as soon as results exist, so
+  // tapping a card shows photos instantly instead of a multi-second fan-out.
+  const prefetchNames = useMemo(() => items.map((i) => i.name), [items]);
+  usePhotoPrefetch(prefetchNames, items.length > 0);
+
   const filteredItems = useMemo(() => {
     if (debouncedPrefs.length === 0) return items;
     return items.filter((item) => {
@@ -303,7 +310,7 @@ export default function ResultsPage() {
             layout
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, delay: index * 0.05 }}
+            transition={{ duration: 0.25, delay: Math.min(index * 0.05, 0.4) }}
             onClick={() => openDishImages(item)}
             className="cursor-pointer"
           >
@@ -425,10 +432,10 @@ export default function ResultsPage() {
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {selectedDish.image_url && !moreImages.some((img) => img.url === selectedDish.image_url) && (
-                  <img key="primary" src={selectedDish.image_url} alt={selectedDish.name} className="w-full rounded-lg" />
+                  <ProgressiveImage key="primary" src={selectedDish.image_url} alt={selectedDish.name} className="w-full rounded-lg" />
                 )}
                 {moreImages.map((img) => (
-                  <img key={img.url} src={img.url} alt={selectedDish.name} loading="lazy" className="w-full rounded-lg" />
+                  <ProgressiveImage key={img.url} src={img.url} alt={selectedDish.name} className="w-full rounded-lg" />
                 ))}
               </div>
 

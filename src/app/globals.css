@@ -114,3 +114,24 @@
     display: none;
   }
 }
+
+/* Progressive image loading — subtle pulse while the photo streams in */
+.progressive-image-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--muted) 30%,
+    color-mix(in srgb, var(--muted-foreground) 12%, transparent) 50%,
+    var(--muted) 70%
+  );
+  background-size: 200% 100%;
+  animation: progressive-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes progressive-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progressive-image-shimmer {
+    animation: none;
+  }
+}
