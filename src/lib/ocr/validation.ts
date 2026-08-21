@@ -2,6 +2,7 @@ import { CATEGORY_KEYWORDS } from "./data/category-keywords";
 import { isFoodRelated } from "./data/food-words";
 export { isFoodRelated };
 import { REAL_WORD_RE, ANY_LETTER_RE } from "./data/real-word-re";
+import { CURRENCY_SYMBOLS } from "./price";
 
 export function isNoiseLine(text: string): boolean {
   const t = text.trim();
@@ -33,6 +34,15 @@ export function isNoiseLine(text: string): boolean {
   if (/(?:pay at|pay upon|counter|cashier|reception)/i.test(lower)) return true;
   if (/(?:allergen|nutrition|ingredients|contains)/i.test(lower)) return true;
   if (/^hotel\b/i.test(lower)) return true;
+  // Venue taglines: "Delicious + Healthy", "Taste the Difference",
+  // "Fresh & Authentic" — short non-food phrases with no price.
+  if (/^(delicious|healthy|fresh|authentic|tasty|yummy|quality|premium|best|great|good)\b/i.test(lower) &&
+      !/\d/.test(t) && !/[$€£¥₹₨৳]/.test(t)) return true;
+  // Venue subtitle: "Gastro Pub · Est. 2011", "Since 1998", "Est. 1923".
+  // Mirrors cleaner.ts SUBTITLE+VENUE_WORDS so the positional parser also
+  // drops it (the cleaner only guards the text-based parsers).
+  if (/(est\.?\s*\d{3,4}|since\s*\d{3,4}|(?:19|20)\d{2})/i.test(t) &&
+      /(pub|bistro|grill|grille|caf[eé]|restaurant|kitchen|tavern|eatery|diner|brewery|est\.|establish|house|fine dining|bar\s*&|bar\s*and)/i.test(t)) return true;
 
   // Venue taglines: "COFFEE HOUSE: Good Coffee, Great Vibes", "Tog Jv:
   // Chicken Steak" — a Title-case line with a colon and no digits is a
@@ -68,7 +78,7 @@ export function isHeaderLike(text: string, hasPrice: boolean, isCentered: boolea
 
   if (CATEGORY_KEYWORDS.has(t) || CATEGORY_KEYWORDS.has(t.replace(/s$/, ""))) return true;
 
-  if (/[$€£¥]\s*\d|\b\d+[.,]\d/.test(t)) return false;
+  if (new RegExp(`[${CURRENCY_SYMBOLS}]\\s*\\d|\\b\\d+[.,]\\d`).test(t)) return false;
 
   const firstWord = lineWords[0]?.toLowerCase();
   const lastWord = lineWords[lineWords.length - 1]?.toLowerCase();
@@ -156,12 +166,15 @@ export function rejectJunkDish(name: string): boolean {
   // Vibes", "Tog Jv: Chicken Steak"). Priced lines survive elsewhere.
   if (/^[A-Za-z][^:\d]{2,40}:\s+[A-Z][a-z]/.test(t)) return true;
   if (/(good coffee|great vibes|coffee house|family restaurant|home of|taste the|best in town)/i.test(t)) return true;
+  // Short venue taglines: "Delicious + Healthy", "Fresh & Authentic".
+  if (/^(delicious|healthy|fresh|authentic|tasty|yummy|quality|premium)\b/i.test(t) &&
+      !/\d/.test(t) && !/[$€£¥₹₨৳]/.test(t)) return true;
 
   // Leftover K-price token ("Espresso 13K ANY" → "13K" survived cleanup).
   if (/\b\d{1,4}\s*[Kk]\b/.test(t)) return true;
 
   // Fused prices that survived the splitter ("$6 00", "$4 50").
-  if (/\$\s*\d+\s+\d{2}\b/.test(t)) return true;
+  if (new RegExp(`[${CURRENCY_SYMBOLS}]\\s*\\d+\\s+\\d{2}\\b`).test(t)) return true;
 
   // Junk suffix/prefix remnants.
   if (/\s+(SOWOW|ANY)\s*$/i.test(t)) return true;
@@ -219,7 +232,7 @@ export function classifyMenuText(rawText: string): { priceRatio: number; avgLine
   let priceLines = 0;
   let totalLen = 0;
   for (const line of lines) {
-    if (/\$\s*\d/.test(line) || /\d+\.\d{2}/.test(line)) priceLines++;
+    if (new RegExp(`[${CURRENCY_SYMBOLS}]\\s*\\d`).test(line) || /\d+\.\d{2}/.test(line)) priceLines++;
     totalLen += line.length;
   }
 

@@ -7,6 +7,7 @@ import { cleanOCRText } from "./cleaner";
 import { cleanTextWithOllama, ollamaVisionOCR, parseDishArray, refineWithOllama } from "./ollama";
 import { parseResultData } from "./parsing";
 import { correctOCRErrors } from "./data/ocr-corrections";
+import { CURRENCY_SYMBOLS } from "./price";
 import type { LocalOCRItem } from "./parsing";
 
 const RAPIDOCR_SCRIPT = join(process.cwd(), "src", "scripts", "rapidocr_scan.py");
@@ -165,7 +166,7 @@ function countPriceLines(text: string): number {
   if (!text) return 0;
   let n = 0;
   for (const line of text.split("\n")) {
-    if (/[$€£¥]\s*\d|\b\d{1,3}[.,]\d{1,2}\b/.test(line)) n++;
+    if (new RegExp(`[${CURRENCY_SYMBOLS}]\\s*\\d|\\b\\d{1,3}[.,]\\d{1,2}\\b`).test(line)) n++;
   }
   return n;
 }
@@ -224,10 +225,26 @@ function getBestResult(results: Array<OCRCandidate | null>, deskewedCount = 0): 
 function pickByParseQuality(base: any, results: Array<OCRCandidate | null>): any {
   const quality = (data: any) => {
     try {
-      const items = parseResultData(data);
-      return { priced: items.filter(i => i.price !== undefined).length, total: items.length };
+      // Clean the text first so currency-symbol substitutions (き→₹,
+      // g→₹, Z→₹, etc.) are reflected in the parse quality score.
+      // Without this, a candidate with "g100" scores LOW (g not a currency
+      // symbol → price lost) while a candidate with "き100" scores HIGH
+      // (き→₹ via cleaner → price found), even though both should be
+      // treated equally after cleaning.
+      const cleaned = cleanOCRText(data.text || "").text;
+      const items = parseResultData({ ...data, text: cleaned });
+      const priced = items.filter(i => i.price !== undefined).length;
+      // Bonus: count price lines in cleaned text that have a recognisable
+      // currency symbol — this rewards candidates where the ₹ glyph survived
+      // OCR (whether read as き, g, Z, #, £, ¥, F, E). A candidate preserving
+      // more currency symbols produces fewer garbled digit-only prices,
+      // which matters because the Ollama refine gate trusts the cleaned text.
+      const cleanPriceLines = cleaned.split("\n").filter(l =>
+        new RegExp(`[${"₹" + CURRENCY_SYMBOLS}]\\s*\\d`).test(l)
+      ).length;
+      return { priced, total: items.length, cleanPriceLines };
     } catch {
-      return { priced: -1, total: -1 };
+      return { priced: -1, total: -1, cleanPriceLines: 0 };
     }
   };
   let best = base;
@@ -235,7 +252,14 @@ function pickByParseQuality(base: any, results: Array<OCRCandidate | null>): any
   for (const r of results) {
     if (!r?.data) continue;
     const q = quality(r.data);
-    if (q.priced > bestQ.priced) {
+    // Rank by: more priced items first, then more clean price lines
+    // (currency symbols preserved), then more total items.
+    // A candidate with fewer priced items but MORE currency-symbol prices
+    // is preferred — those prices are recoverable, while digit-only prices
+    // (0012, 092) are likely garbled beyond repair.
+    const bestScore = bestQ.priced * 100 + bestQ.cleanPriceLines * 10 + bestQ.total;
+    const qScore = q.priced * 100 + q.cleanPriceLines * 10 + q.total;
+    if (qScore > bestScore) {
       bestQ = q;
       best = r.data;
     }

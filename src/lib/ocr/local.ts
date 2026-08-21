@@ -15,12 +15,15 @@
 
 import Tesseract from "tesseract.js";
 import { createHash } from "crypto";
+import { logger } from "@/lib/logger";
 import { cleanOCRText } from "./cleaner";
 import { cleanTextWithOllama, ollamaVisionOCR, parseDishArray, refineWithOllama } from "./ollama";
 import { splitMergedItemsFallback } from "./merged-split";
 import { parseResultData, crossValidate, paragraphAwareParse, smartParse, sequentialParse, basicExtract } from "./parsing";
-import { rejectJunkDish } from "./validation";
+import { rejectJunkDish, hasSufficientRealWords } from "./validation";
 import { tryRapidOCR, tryTesseractOnBuffer, getBestResult, pickByParseQuality, menuOCRRescue, estimateSkewDegrees, OCRCandidate } from "./candidates";
+import { CURRENCY_SYMBOLS, normalizePrice, findPriceInText } from "./price";
+import { cleanDishName } from "./name-cleanup";
 
 // ═══════════════════════════════════════════════════════════════════
 //  TYPES
@@ -28,6 +31,9 @@ import { tryRapidOCR, tryTesseractOnBuffer, getBestResult, pickByParseQuality, m
 
 export type { LocalOCRItem } from "./parsing";
 import type { LocalOCRItem } from "./parsing";
+import { getCache, setCache } from "./persistentCache";
+import { ocrSuccess, ocrFailure } from "./metrics";
+import fs from "fs";
 
 interface WordPos {
   text: string;
@@ -38,33 +44,235 @@ interface WordPos {
   confidence: number;
 }
 
+/**
+ * Cross-candidate price recovery + missing item rescue.
+ *
+ * When the winning candidate produces garbled text (e.g. "Fruit Salad 0012"
+ * where the ₹ symbol was dropped and digits scrambled), but a sibling candidate
+ * (e.g. brightness-boosted) read the same line as "Fruit Salad 100" (symbol
+ * dropped but digits intact), this function cross-references all candidate outputs:
+ *
+ * Phase 1 — Price fixup: for items whose price is garbled by き-fusion
+ *   (e.g. "き50"→"250", "き100"→"0012", "き90"→"092"), adopt the price from
+ *   another candidate's reading of the same dish. Uses majority vote across
+ *   all candidates — the most commonly read price wins.
+ *
+ * Phase 2 — Missing item rescue: for dishes that were dropped entirely by
+ *   the winner's parser (e.g. cleaner.ts dropped a line as noise, or the
+ *   positional parser couldn't place it), re-add them from sibling candidates
+ *   that read them with a valid price.
+ *
+ * Both currency-symbol prices (き→₹, g→₹, Z→₹) and digit-only prices are
+ * trusted — digit-only prices from Tesseract are often correct when the き
+ * glyph is simply dropped (not fused) with the digits intact.
+ *
+ * Name matching is fuzzy (edit-distance ≤1 per word) so garbled variants
+ * like "oy Fruit Salad" still match "Fruit Salad".
+ */
+function crossCandidatePriceRecovery(
+  items: LocalOCRItem[],
+  candidates: Array<OCRCandidate | null>
+): LocalOCRItem[] {
+  if (items.length === 0) return items;
+
+  const normName = (s: string): string =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+
+  // Fuzzy name match: word-by-word edit-distance ≤1 on normal length,
+  // exact match on short words. Handles OCR noise like "oy" → "" or
+  // "Vik" → "" prefix garbling that affects single-word names.
+  const namesMatch = (a: string, b: string): boolean => {
+    const na = normName(a), nb = normName(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    const wa = na.split(" "), wb = nb.split(" ");
+    if (wa.length === 0 || wb.length === 0) return false;
+    // If either side is a single word, match against any word in the other
+    if (wa.length === 1 || wb.length === 1) {
+      const [single, multi] = wa.length === 1 ? [wa[0], wb] : [wb[0], wa];
+      return multi.some(
+        (w) => w === single || (Math.abs(w.length - single.length) <= 1 &&
+          editDistance(w, single) <= 1)
+      );
+    }
+    // Both multi-word: match each short side word against any long side word
+    const [short, long] = wa.length <= wb.length ? [wa, wb] : [wb, wa];
+    return short.every(
+      (w) => long.some((lw) => lw === w || (Math.abs(lw.length - w.length) <= 1 &&
+        editDistance(lw, w) <= 1))
+    );
+  };
+
+  // Track whether each candidate price came from a currency-symbol reading
+  // (strategy a, more trustworthy) vs digit-only (strategy b, less so).
+  interface CandidatePrice {
+    name: string;
+    price: number;
+    hasSymbol: boolean;  // true if a currency symbol/glyph was present
+  }
+  const candidateItems: Array<CandidatePrice[]> = [];
+  for (const c of candidates) {
+    if (!c?.data?.text) continue;
+    const cleanResult = cleanOCRText(c.data.text);
+    // Combine classified lines + dropped lines + raw text — dropped lines
+    // may carry digit-only or currency prices the classifier rejected as noise.
+    const allRawLines = [
+      ...cleanResult.lines.map(l => l.text),
+      ...cleanResult.dropped,
+    ];
+    // Also include lines from the raw cleaned text (catches anything the
+    // line-by-line classification missed, e.g. mid-line junk splits).
+    const cleanedTextLines = cleanResult.text.split(/\n/).map(l => l.trim()).filter(Boolean);
+    const allLines = [...new Set([...allRawLines, ...cleanedTextLines])];
+    const priceLines: CandidatePrice[] = [];
+    for (const lineText of allLines) {
+      // (a) Currency-symbol price: "Dish ₹200"
+      const m = lineText.match(new RegExp(`([${CURRENCY_SYMBOLS}])\\s*(\\d{1,4}(?:[.,]\\d{1,2})?)`));
+      if (m) {
+        const price = normalizePrice(m[0]);
+        if (price !== null && price >= 5 && price < 2000) {
+          const symIdx = lineText.indexOf(m[1]);
+          const namePart = lineText.slice(0, symIdx).trim();
+          if (namePart && /[a-zA-Z]/.test(namePart)) {
+            const cleanName = cleanDishName(namePart.split(/[^a-zA-Z]+/).filter(Boolean).join(" "));
+            if (cleanName.length >= 3 && hasSufficientRealWords(cleanName)) {
+              priceLines.push({ name: cleanName, price, hasSymbol: true });
+            }
+          }
+        }
+      } else {
+        // (b) Digit-only price (currency glyph dropped but digits intact):
+        // "Dish 100" or "Dish 60 p : >" (trailing OCR junk after the price).
+        // Strip trailing non-digit junk, then use findPriceInText.
+        const trimmedLine = lineText.replace(/[^\d\s.₹]*$/g, "").trim();
+        const priceResult = findPriceInText(trimmedLine);
+        if (priceResult !== null && priceResult.price >= 5 && priceResult.price < 2000) {
+          const namePart = lineText.slice(0, lineText.indexOf(priceResult.raw)).trim();
+          if (namePart && /[a-zA-Z]{3,}/.test(namePart)) {
+            const cleanName = cleanDishName(namePart.split(/[^a-zA-Z]+/).filter(Boolean).join(" "));
+            if (cleanName.length >= 3 && hasSufficientRealWords(cleanName)) {
+              priceLines.push({ name: cleanName, price: priceResult.price, hasSymbol: false });
+            }
+          }
+        }
+      }
+    }
+    candidateItems.push(priceLines);
+  }
+
+  if (candidateItems.length === 0) return items;
+
+  let changed = false;
+
+  // Phase 1: Fix garbled prices on existing items.
+  // When き fuses with digits, the resulting number is often wrong (e.g.
+  // "き50"→"250", "き100"→"0012", "き90"→"092"). The winner's price is garbled
+  // but a sibling candidate may have read the same dish with a correct price
+  // (either with a currency symbol, or with the right digits).
+  // Priority: currency-symbol prices > digit-only prices > current item price.
+  for (const item of items) {
+    // Collect all prices for this dish across all candidates
+    const symbolPrices: number[] = [];
+    const digitPrices: number[] = [];
+    for (const candItems of candidateItems) {
+      for (const cand of candItems) {
+        if (namesMatch(item.name, cand.name)) {
+          if (cand.hasSymbol) {
+            symbolPrices.push(cand.price);
+          } else {
+            digitPrices.push(cand.price);
+          }
+        }
+      }
+    }
+    if (symbolPrices.length === 0 && digitPrices.length === 0) continue;
+    // Prefer currency-symbol prices — they're more trustworthy
+    const allPriced = symbolPrices.length > 0 ? symbolPrices : digitPrices;
+    // Find most common price (mode)
+    const priceCounts = new Map<number, number>();
+    for (const p of allPriced) {
+      priceCounts.set(p, (priceCounts.get(p) || 0) + 1);
+    }
+    let bestPrice = allPriced[0];
+    let bestCount = 1;
+    for (const [price, count] of priceCounts) {
+      if (count > bestCount) {
+        bestPrice = price;
+        bestCount = count;
+      }
+    }
+    // Adopt the recovered price if it differs from the current one
+    if (bestPrice !== item.price) {
+      item.price = bestPrice;
+      changed = true;
+    }
+  }
+
+  // Phase 2: Recover missing items
+  const existingNames = new Set(items.map((i) => normName(i.name)));
+  const newItems: LocalOCRItem[] = [];
+  for (const candItems of candidateItems) {
+    for (const cand of candItems) {
+      const candNorm = normName(cand.name);
+      if (existingNames.has(candNorm)) continue;
+      const alreadyPresent = items.some((i) => namesMatch(i.name, cand.name));
+      if (alreadyPresent) continue;
+      if (cand.price >= 5) {
+        // Infer category from the item name if we have enough context
+        const categoryMatch = items.find((i) => namesMatch(i.name, cand.name));
+        newItems.push({
+          name: cand.name,
+          price: cand.price,
+          category: categoryMatch?.category,
+        });
+        changed = true;
+      }
+    }
+  }
+
+  if (newItems.length > 0) {
+    items.push(...newItems);
+  }
+
+  return items;
+}
+
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN ENTRY POINT — with Sharp preprocessing + multi-PSM
 // ═══════════════════════════════════════════════════════════════════
 
-// ── Result cache (image-hash keyed) ──
-// Scanning the same image twice (retry, re-upload, identical test corpus
-// image) is pure waste: every run costs multi-reader OCR + possibly two
-// Ollama calls. Cache the final result for a short TTL so identical bytes
-// resolve instantly. 60 entries ≈ 60 distinct menu photos in a 10-minute
-// window — ample for a single-user dev box and most prod sessions.
-const OCR_RESULT_CACHE = new Map<string, { result: { raw_text: string; items: LocalOCRItem[] }; ts: number }>();
-const OCR_RESULT_CACHE_TTL_MS = 10 * 60 * 1000;
-const OCR_RESULT_CACHE_MAX = 60;
-
-function ocrCacheGet(hash: string): { raw_text: string; items: LocalOCRItem[] } | null {
-  const entry = OCR_RESULT_CACHE.get(hash);
-  if (entry && Date.now() - entry.ts < OCR_RESULT_CACHE_TTL_MS) return entry.result;
-  if (entry) OCR_RESULT_CACHE.delete(hash);
-  return null;
+async function loadSharp() {
+  try {
+    return (await import("sharp")).default;
+  } catch {
+    return null;
+  }
 }
 
-function ocrCacheSet(hash: string, result: { raw_text: string; items: LocalOCRItem[] }): void {
-  if (OCR_RESULT_CACHE.size >= OCR_RESULT_CACHE_MAX) {
-    const first = OCR_RESULT_CACHE.entries().next().value;
-    if (first) OCR_RESULT_CACHE.delete(first[0]);
-  }
-  OCR_RESULT_CACHE.set(hash, { result, ts: Date.now() });
+async function ocrCacheGet(hash: string): Promise<{ raw_text: string; items: LocalOCRItem[] } | null> {
+  const cached = await getCache(hash);
+  return cached || null;
+}
+
+async function ocrCacheSet(hash: string, result: { raw_text: string; items: LocalOCRItem[] }): Promise<void> {
+  await setCache(hash, result);
 }
 
 export async function runLocalOCR(
@@ -73,6 +281,7 @@ export async function runLocalOCR(
   let resultData: any;
   let inputBuffer: Buffer | null = null;
   let hash = "";
+  let candidateResults: Array<OCRCandidate | null> = [];
 
   try {
     inputBuffer = Buffer.isBuffer(file as unknown)
@@ -81,62 +290,65 @@ export async function runLocalOCR(
 
     // Identical bytes → cached result (no re-OCR, no Ollama calls).
     hash = createHash("sha256").update(inputBuffer).digest("hex").slice(0, 32);
-    const cached = ocrCacheGet(hash);
+    const cached = await ocrCacheGet(hash);
     if (cached) return cached;
 
     try {
-      const sharp = eval('require')('sharp');
-      // NOTE: normalize()+sharpen() were measured ~8x SLOWER in Tesseract
-      // (10s vs 1.2s per PSM on the same image) with no corpus-quality gain —
-      // high-contrast sharpened input makes the LSTM segment far harder.
-      // Grayscale + resize keeps ~full quality at ~1/8th the cost; the
-      // meanLum<60 boosted path below handles genuinely dark images.
-      const preprocessed = await sharp(inputBuffer)
-        .grayscale()
-        .resize({ width: 2048, withoutEnlargement: true })
-        .toBuffer();
-      const meanLum = (await sharp(preprocessed).stats()).channels[0].mean;
-
-      const psmModes = [6, 4, 11];
-      const results: Array<OCRCandidate | null> = [];
-
-      const rapid = await tryRapidOCR(inputBuffer);
-      const skewDeg = estimateSkewDegrees(rapid?.data?.rawLines);
-      let deskewedCount = 0;
-
-      if (skewDeg !== 0) {
-        const deskewedPrep = await sharp(preprocessed)
-          .rotate(skewDeg, { background: { r: 255, g: 255, b: 255 } })
-          .toBuffer();
-        const deskewedRaw = await sharp(inputBuffer)
-          .rotate(skewDeg, { background: { r: 255, g: 255, b: 255 } })
-          .toBuffer();
-        if (Math.abs(skewDeg) >= 2.5) deskewedCount = 4;
-        // All 6 Tesseract runs in parallel (they were sequential before).
-        const [d6, d4, d11, s6, s4, s11] = await Promise.all([
-          tryTesseractOnBuffer(deskewedPrep, 6),
-          tryTesseractOnBuffer(deskewedPrep, 4),
-          tryTesseractOnBuffer(deskewedPrep, 11),
-          tryTesseractOnBuffer(preprocessed, 6),
-          tryTesseractOnBuffer(preprocessed, 4),
-          tryTesseractOnBuffer(preprocessed, 11),
+      const sharp = await loadSharp();
+      if (!sharp) {
+        const psmModes = [6, 4, 11];
+        const results = await Promise.all([
+          tryRapidOCR(inputBuffer),
+          ...psmModes.map(psm => tryTesseractOnBuffer(inputBuffer!, psm)),
         ]);
-        results.push(await tryRapidOCR(deskewedRaw), d6, d4, d11, rapid, s6, s4, s11);
+        resultData = getBestResult(results);
+        candidateResults = results;
       } else {
-        // RapidOCR first (needed for skew), then all 3 PSM modes in parallel.
-        const [t6, t4, t11] = await Promise.all(psmModes.map((psm) => tryTesseractOnBuffer(preprocessed, psm)));
-        results.push(rapid, t6, t4, t11);
-      }
-
-      if (meanLum < 60) {
-        const boosted = await sharp(preprocessed)
-          .modulate({ brightness: 1.7 })
+        const preprocessed = await sharp(inputBuffer)
+          .grayscale()
+          .resize({ width: 2048, withoutEnlargement: true })
           .toBuffer();
-        results.push(...(await Promise.all(psmModes.map((psm) => tryTesseractOnBuffer(boosted, psm)))));
+        const meanLum = (await sharp(preprocessed).stats()).channels[0].mean;
+        const psmModes = [6, 4, 11];
+        const results: Array<OCRCandidate | null> = [];
+        const rapid = await tryRapidOCR(inputBuffer);
+        const skewDeg = estimateSkewDegrees(rapid?.data?.rawLines);
+        let deskewedCount = 0;
+        if (skewDeg !== 0) {
+          const deskewedPrep = await sharp(preprocessed)
+            .rotate(skewDeg, { background: { r: 255, b: 255, g: 255 } })
+            .toBuffer();
+          const deskewedRaw = await sharp(inputBuffer)
+            .rotate(skewDeg, { background: { r: 255, g: 255, b: 255 } })
+            .toBuffer();
+          if (Math.abs(skewDeg) >= 2.5) deskewedCount = 4;
+          const [d6, d4, d11, s6, s4, s11] = await Promise.all([
+            tryTesseractOnBuffer(deskewedPrep, 6),
+            tryTesseractOnBuffer(deskewedPrep, 4),
+            tryTesseractOnBuffer(deskewedPrep, 11),
+            tryTesseractOnBuffer(preprocessed, 6),
+            tryTesseractOnBuffer(preprocessed, 4),
+            tryTesseractOnBuffer(preprocessed, 11),
+          ]);
+          results.push(await tryRapidOCR(deskewedRaw), d6, d4, d11, rapid, s6, s4, s11);
+        } else {
+          const [t6, t4, t11] = await Promise.all(psmModes.map(psm => tryTesseractOnBuffer(preprocessed, psm)));
+          results.push(rapid, t6, t4, t11);
+        }
+        if (meanLum < 100) {
+          const boosted = await sharp(preprocessed).modulate({ brightness: 1.7 }).toBuffer();
+          results.push(...(await Promise.all(psmModes.map(psm => tryTesseractOnBuffer(boosted, psm)))));
+          // Brightness + histogram-equalisation normalise — especially effective
+          // on dark-background menus where the ₹ glyph is orange/low-contrast.
+          // Boost alone sometimes misses the contrast stretch needed to
+          // separate the symbol from the digit stream.
+          const boostedNorm = await sharp(preprocessed).modulate({ brightness: 1.7 }).normalise().toBuffer();
+          results.push(...(await Promise.all(psmModes.map(psm => tryTesseractOnBuffer(boostedNorm, psm)))));
+        }
+        const fastWinner = pickByParseQuality(getBestResult(results, deskewedCount), results);
+        resultData = await menuOCRRescue(inputBuffer, fastWinner, results, deskewedCount);
+        candidateResults = results;
       }
-
-      const fastWinner = pickByParseQuality(getBestResult(results, deskewedCount), results);
-      resultData = await menuOCRRescue(inputBuffer, fastWinner, results, deskewedCount);
     } catch (e) {
       const psmModes = [6, 4, 11];
       const results = await Promise.all([
@@ -144,6 +356,7 @@ export async function runLocalOCR(
         ...psmModes.map(psm => tryTesseractOnBuffer(inputBuffer!, psm)),
       ]);
       resultData = getBestResult(results);
+      candidateResults = results;
     }
   } catch (e) {
     // Last resort: plain Tesseract on the raw file.
@@ -177,15 +390,28 @@ export async function runLocalOCR(
 
   let items: LocalOCRItem[];
 
-  items = parseResultData(resultData);
+  // Feed the (deterministically + optionally Ollama) CLEANED text into the
+  // parsers, not the raw OCR text. This is the fix for "the cleaner runs
+  // but the output is never used": the sequential/basic parsers now see the
+  // tidy text, so garbage lines and split prices are already handled.
+  items = parseResultData(resultData, parseText);
+  
+  // Cross-candidate price recovery: BEFORE crossValidate strips items with
+  // implausible prices (e.g. "0012"→12). When the symbol is dropped and digits
+  // are garbled, the price looks like 12, which crossValidate removes. By
+  // recovering the correct price from sibling candidates first, we save the
+  // item from being dropped.
+  if (candidateResults.length > 0 && items.length > 0) {
+    items = crossCandidatePriceRecovery(items, candidateResults);
+  }
 
   items = crossValidate(items);
 
-  // Ollama refine is the single most expensive step (~15-21s warm). The
-  // deterministic parsers are already strong — only spend the call when the
-  // parse looks weak (<3 dishes or <2 priced), i.e. when the model could
-  // genuinely add value (split merged rows / fix garbled names). Clean
-  // menus skip it entirely.
+  // Ollama refine is the single most expensive step (~15-21s warm), but the
+  // user wants it to actually run. Gate: run whenever the deterministic parse
+  // is NOT clearly excellent (<6 dishes OR <4 priced OR any merged-row signal),
+  // so normal menus still get name/price/category refinement while very clean
+  // ones skip the LLM round-trip.
   if (process.env.OLLAMA_REFINE !== "0" && needsOllamaRefine(items)) {
     try {
       const refined = await refineWithOllama(parseText, items);
@@ -205,37 +431,130 @@ export async function runLocalOCR(
   // Sticks $4.00") split into clean items BEFORE the gate sees them.
   items = items.filter((i) => !rejectJunkDish(i.name));
 
-  if (items.length === 0 && process.env.OLLAMA_VISION !== "0" && inputBuffer) {
+  // Ollama vision — reads the menu IMAGE directly (true OCR: image in, text out).
+  // Vision is the PRIMARY reader. When it returns items, ALWAYS use them —
+  // a vision model reading the actual image is more accurate than Tesseract
+  // garbling decorative fonts.
+  logger.info(`[OCR] Vision check: OLLAMA_VISION=${process.env.OLLAMA_VISION}, inputBuffer=${inputBuffer ? 'yes' : 'no'}`);
+  if (process.env.OLLAMA_VISION !== "0" && inputBuffer) {
     try {
+      logger.info(`[OCR] Calling ollamaVisionOCR...`);
       const vis = await ollamaVisionOCR(inputBuffer);
+      logger.info(`[OCR] Vision returned: ${vis ? `alphaWordCount=${vis.alphaWordCount}` : 'null'}`);
       if (vis && vis.alphaWordCount >= 3) {
         const visText = vis.data.text.trim();
-        if (visText.startsWith("[")) {
-          const parsedItems = parseDishArray(visText, visText);
-          if (parsedItems.length > 0) {
-            items = parsedItems;
-          }
+        logger.info(`[OCR] Vision text (first 300): ${visText.slice(0, 300)}`);
+
+        // Extract items from vision JSON — handles flat arrays AND nested
+        // structures like {"food_items": [{"category":"...", "items":[...]}]}
+        let visItems: LocalOCRItem[] = [];
+        try {
+          // Strip markdown code fences if present
+          const cleaned = visText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+          const parsed = JSON.parse(cleaned);
+
+          // Flatten all items from any JSON structure
+          const extractItems = (obj: any): any[] => {
+            if (Array.isArray(obj)) {
+              // Array of items — each may have {name, price} directly
+              // or {item, price}, or may be a category wrapper {category, items: [...]}
+              const result: any[] = [];
+              for (const el of obj) {
+                if (el && typeof el === "object") {
+                  // Check if this is a direct item (has name or item key)
+                  const dishName = el.name || el.item || el.dish || el.dish_name || el.title;
+                  if (dishName && typeof dishName === "string") {
+                    // Parse price: number, or string like "$70", "70", "$70.00"
+                    let price: number | undefined;
+                    const rawPrice = el.price ?? el.cost ?? el.amount;
+                    if (typeof rawPrice === "number" && Number.isFinite(rawPrice)) {
+                      price = rawPrice;
+                    } else if (typeof rawPrice === "string") {
+                      const cleaned = rawPrice.replace(/[^0-9.]/g, "");
+                      if (/^\d+(\.\d{1,2})?$/.test(cleaned)) price = parseFloat(cleaned);
+                    }
+                    result.push({ name: dishName, price, category: el.category || el.section || el.type });
+                  } else if (Array.isArray(el.items)) {
+                    // Category wrapper: {category: "...", items: [...]}
+                    const cat = el.category || el.section || el.name || "";
+                    for (const item of el.items) {
+                      if (item && typeof item === "object") {
+                        const innerName = item.name || item.item || item.dish || item.dish_name || item.title;
+                        if (innerName && typeof innerName === "string") {
+                          let price: number | undefined;
+                          const rawPrice = item.price ?? item.cost ?? item.amount;
+                          if (typeof rawPrice === "number" && Number.isFinite(rawPrice)) {
+                            price = rawPrice;
+                          } else if (typeof rawPrice === "string") {
+                            const cleaned = rawPrice.replace(/[^0-9.]/g, "");
+                            if (/^\d+(\.\d{1,2})?$/.test(cleaned)) price = parseFloat(cleaned);
+                          }
+                          result.push({ name: innerName, price, category: item.category || item.section || cat });
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              return result;
+            }
+            if (obj && typeof obj === "object") {
+              // Object with a nested array — try common keys
+              for (const key of ["food_items", "items", "dishes", "menu_items", "menu", "results", "data"]) {
+                if (Array.isArray(obj[key])) return extractItems(obj[key]);
+              }
+              // Try the first array value we find
+              for (const val of Object.values(obj)) {
+                if (Array.isArray(val) && val.length > 0) return extractItems(val);
+              }
+            }
+            return [];
+          };
+
+          const rawItems = extractItems(parsed);
+          logger.info(`[OCR] Vision extracted ${rawItems.length} raw items from JSON`);
+          visItems = rawItems
+            .filter((r: any) => r && typeof r === "object" && r.name)
+            .map((r: any) => {
+              // Normalize name: trim, remove surrounding quotes
+              let name = String(r.name || "").trim().replace(/^["']|["']$/g, "");
+              // Normalize price: already parsed by extractItems, but handle edge cases
+              let price: number | undefined;
+              if (typeof r.price === "number" && Number.isFinite(r.price)) {
+                price = r.price;
+              } else if (typeof r.price === "string") {
+                const cleaned = r.price.replace(/[^0-9.]/g, "");
+                if (/^\d+(\.\d{1,2})?$/.test(cleaned)) price = parseFloat(cleaned);
+              }
+              // Normalize category
+              let category = typeof r.category === "string" ? r.category.trim().replace(/^["']|["']$/g, "") : undefined;
+              return { name, price, category };
+            })
+            .filter((i) => i.name.length >= 2 && /[a-zA-Z]{2,}/.test(i.name));
+          logger.info(`[OCR] Vision parsed ${visItems.length} clean items`);
+        } catch (e) {
+          logger.info(`[OCR] Vision JSON parse failed: ${e}`);
+        }
+
+        if (visItems.length === 0) {
+          visItems = sequentialParse(cleanOCRText(visText).text);
+        }
+
+        if (visItems.length > 0) {
+          logger.info(`[OCR] Ollama vision: ${visItems.length} items — REPLACING deterministic parse`);
+          items = visItems;
         } else {
-          const visClean = cleanOCRText(visText);
-          const visItems = sequentialParse(visClean.text);
-          const visRefined =
-            process.env.OLLAMA_REFINE !== "0"
-              ? await refineWithOllama(visClean.text, visItems)
-              : visItems;
-          if (visRefined !== visItems) {
-            items = visRefined;
-          } else {
-            items = splitMergedItemsFallback(visItems);
-          }
+          logger.info(`[OCR] Vision produced 0 parseable items`);
         }
       }
-    } catch {
-      // Vision rescue never throws; belt-and-braces.
+    } catch (e) {
+      logger.warn(`[OCR] Vision error: ${e}`);
     }
   }
 
   const result = { raw_text, items: items.slice(0, 50) };
-  if (hash) ocrCacheSet(hash, result);
+  if (hash) await ocrCacheSet(hash, result);
+  ocrSuccess('local');
   return result;
 }
 
@@ -250,17 +569,34 @@ function needsOllamaClean(text: string): boolean {
   if (words.length < 8) return false; // too few words to judge
   const shortWords = words.filter((w) => w.length <= 2).length;
   const nonAlphaWords = words.filter((w) => !/[A-Za-z]/.test(w)).length;
-  // Real OCR noise: lots of 1-2 char fragments OR lots of pure-number/symbol
-  // tokens. Normal menus with an address line have neither.
-  return shortWords / words.length > 0.4 || nonAlphaWords / words.length > 0.25;
+  // Garbled name signals: words with embedded numbers, special chars
+  const garbledWords = words.filter((w) => /[=|\\\/{}()[\]<>]/.test(w) || /\d+[a-zA-Z]|[a-zA-Z]+\d{2,}/.test(w)).length;
+  // Relaxed thresholds so the cleaner actually triggers on real OCR garbage:
+  return shortWords / words.length > 0.2 || nonAlphaWords / words.length > 0.12 || garbledWords / words.length > 0.15;
 }
 
-/** True when the deterministic parse is weak enough to justify the expensive
- *  Ollama refine (~15-21s). Same "good enough" bar menuOCRRescue uses:
- *  ≥3 dishes with ≥2 priced means the reader+parsers did their job. */
+/** True when the parse needs Ollama refinement — either weak quantity,
+ *  garbled names, or suspicious prices. */
 function needsOllamaRefine(items: LocalOCRItem[]): boolean {
+  if (items.length === 0) return false;
   const priced = items.filter((i) => i.price !== undefined).length;
-  return items.length < 3 || priced < 2;
+
+  // Always refine when the parse is weak (< 6 dishes OR < 4 priced)
+  if (items.length < 6 || priced < 4) return true;
+
+  // Garbled name signal: non-alpha chars, embedded numbers, noise suffixes
+  const garbledRe = /[=|\\\/{}()[\]<>]|\d{2,}|\b(ais|yet|No)\b|^[a-z]{1,2}\s/i;
+  const garbledCount = items.filter((i) => garbledRe.test(i.name)).length;
+  if (garbledCount / items.length > 0.2) return true;
+
+  // Merged-row signal
+  if (items.some((i) => /\$\s*\d+\s+\d{2}\b|\b\d{1,3}[.,]\d{1,2}\b/.test(i.name))) return true;
+
+  // Suspicious price signal
+  const prices = items.filter((i) => i.price !== undefined).map((i) => i.price as number);
+  if (prices.some((p) => p < 100) && prices.some((p) => p > 200)) return true;
+
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════

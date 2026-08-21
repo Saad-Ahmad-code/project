@@ -1,7 +1,7 @@
 import { CATEGORY_KEYWORDS } from "./data/category-keywords";
 import { isFoodRelated } from "./data/food-words";
 import { isNoiseLine, isHeaderLike, isDescriptionLine, hasSufficientRealWords, nameTableEntry, classifyMenu, classifyMenuText, computeConfidence, dynamicThreshold, guessCategory, isHeaderToken, isHeaderCategoryLike, categoryFromHeader } from "./validation";
-import { findPriceInText, findPriceInWord, PriceResult } from "./price";
+import { findPriceInText, findPriceInWord, CURRENCY_SYMBOLS, PriceResult } from "./price";
 import { cleanDishName } from "./name-cleanup";
 import { correctOCRErrors } from "./data/ocr-corrections";
 import { detectColumns, isCentered } from "./columns";
@@ -228,7 +228,7 @@ export function parseColumn(column: Column): ParsedDish[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    if (/^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*\.*\s*$/.test(line.text.trim()) && line.price !== undefined) {
+    if (new RegExp(`^[${CURRENCY_SYMBOLS}]?\\s*\\d+(?:[.,]\\d{1,2})?\\s*\\.*\\s*$`).test(line.text.trim()) && line.price !== undefined) {
       pendingPrice = line.price;
       continue;
     }
@@ -314,11 +314,11 @@ export function parseColumn(column: Column): ParsedDish[] {
     const nameText = line.text.trim();
     const words = nameText.split(/\s+/).length;
 
-    if (/(Small|Regular|Single|Large|Double|Medium)\s+[$€£¥]?\s*\d/.test(nameText)) {
+    if (new RegExp(`(Small|Regular|Single|Large|Double|Medium)\\s+[${CURRENCY_SYMBOLS}]?\\s*\\d`).test(nameText)) {
       if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
 
       const baseName = nameText
-        .replace(/(Small|Regular|Single|Large|Double|Medium|Kids?)\s+[$€£¥]?\s*\d+(?:[.,]\d+)?\s*\/?\s*/g, "")
+        .replace(new RegExp(`(Small|Regular|Single|Large|Double|Medium|Kids?)\\s+[${CURRENCY_SYMBOLS}]?\\s*\\d+(?:[.,]\\d+)?\\s*\\/?\\s*`, "g"), "")
         .trim();
       if (baseName && baseName.length > 3) {
         const prices = [...nameText.matchAll(/(\d+(?:[.,]\d{1,2})?)/g)].map(m => parseFloat(m[1].replace(",", ".")));
@@ -356,7 +356,7 @@ export function parseColumn(column: Column): ParsedDish[] {
     if (!line.hasPrice && pendingPrice === undefined && i + 1 < lines.length) {
       const nxt = lines[i + 1];
       if (nxt.hasPrice && nxt.price !== undefined && nxt.y - line.y < 60 &&
-          /^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?[\s.]*$/.test(nxt.text.trim())) {
+          new RegExp(`^[${CURRENCY_SYMBOLS}]?\\s*\\d+(?:[.,]\\d{1,2})?[\\s.]*$`).test(nxt.text.trim())) {
         const cleanedName = cleanDishName(nameText);
         if (cleanedName.length >= 3 && hasSufficientRealWords(cleanedName)) {
           if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
@@ -403,7 +403,7 @@ export function parseColumn(column: Column): ParsedDish[] {
     if (line.hasPrice && line.price !== undefined) {
       if (pendingDish) { dishes.push(pendingDish); pendingDish = null; }
 
-      const nameWithoutPrice = nameText.replace(/\s*[$€£¥]?\s*\d+(?:[.,]\d{1,2})?[\s.]*$/, "").trim();
+      const nameWithoutPrice = nameText.replace(new RegExp(`\\s*[${CURRENCY_SYMBOLS}]?\\s*\\d+(?:[.,]\\d{1,2})?[\\s.]*$`), "").trim();
       const cleaned = cleanDishName(nameWithoutPrice);
       if (cleaned.length >= 3 && words >= 1 && !isNoiseLine(cleaned)) {
         const conf = computeConfidence(true, cleaned, currentCategory, line.isCentered, line.isAllCaps, layout);
@@ -557,9 +557,9 @@ export function sequentialParse(rawText: string): ParsedDish[] {
       if (/^\d+(?:\.\d{1,2})?$/.test(line.trim())) continue;
       if (!priceOnLine && isDescriptionLine(line)) continue;
 
-      if (/(Small|Regular|Single|Large|Double|Medium)\s+[$€£¥]?\s*\d/.test(line)) {
+      if (new RegExp(`(Small|Regular|Single|Large|Double|Medium)\\s+[${CURRENCY_SYMBOLS}]?\\s*\\d`).test(line)) {
         const baseName = line
-          .replace(/(Small|Regular|Single|Large|Double|Medium|Kids?)\s+[$€£¥]?\s*\d+(?:[.,]\d+)?\s*\/?\s*/g, "")
+          .replace(new RegExp(`(Small|Regular|Single|Large|Double|Medium|Kids?)\\s+[${CURRENCY_SYMBOLS}]?\\s*\\d+(?:[.,]\\d+)?\\s*\\/?\\s*`, "g"), "")
           .trim();
         if (baseName && baseName.length > 3) {
           const cleaned = cleanDishName(baseName);
@@ -585,7 +585,7 @@ export function sequentialParse(rawText: string): ParsedDish[] {
       if (priceOnLine && priceOnLine.position === "trailing") {
         name = line.slice(0, line.lastIndexOf(priceOnLine.raw)).trim();
       } else if (priceOnLine && priceOnLine.position === "left_side") {
-        name = line.replace(/^[$€£¥Rs.]+\s*\d+(?:[.,]\d+)?\s+/, "").trim();
+        name = line.replace(new RegExp(`^[${CURRENCY_SYMBOLS}Rs.]+\\s*\\d+(?:[.,]\\d+)?\\s+`), "").trim();
       }
 
       if (!priceOnLine && i + 1 < lines.length) {
@@ -696,7 +696,7 @@ export function basicExtract(rawText: string): ParsedDish[] {
     if (price && price.position === "trailing") {
       name = cleaned.slice(0, cleaned.lastIndexOf(price.raw)).trim();
     } else if (price && price.position === "left_side") {
-      name = cleaned.replace(/^[$€£¥Rs.]+\s*\d+(?:[.,]\d+)?\s+/, "").trim();
+      name = cleaned.replace(new RegExp(`^[${CURRENCY_SYMBOLS}Rs.]+\\s*\\d+(?:[.,]\\d+)?\\s+`), "").trim();
     }
 
     if (!name || wordCount > 25) continue;
@@ -845,12 +845,16 @@ export function paragraphAwareParse(paragraphs: ParagraphInfo[], rawText: string
   return items;
 }
 
-export function parseResultData(resultData: any): LocalOCRItem[] {
+export function parseResultData(resultData: any, cleanedText?: string): LocalOCRItem[] {
   const raw_text = resultData.text || "";
   const rawWords: any[] = resultData.words || [];
 
   const cleaned = cleanOCRText(raw_text);
-  const parseText = cleaned.text;
+  // When the caller already produced cleaned text (deterministic cleaner +
+  // optional Ollama clean), let the parsers consume THAT instead of re-cleaning
+  // the raw text internally. The positional (word-box) parsers ignore parseText
+  // and use word coordinates; this only affects the sequential/basic fallbacks.
+  const parseText = cleanedText !== undefined && cleanedText.trim() ? cleanedText : cleaned.text;
 
   const words: WordPos[] = rawWords
     .filter((w: any) => (w.confidence ?? 0) >= 25)

@@ -1,3 +1,5 @@
+import { CURRENCY_SYMBOLS } from "./price";
+
 export function isCentered(minX: number, maxX: number, imgWidth: number): boolean {
   const midX = minX + (maxX - minX) / 2;
   const leftMargin = minX;
@@ -25,7 +27,7 @@ export function detectColumns<T extends ColumnLine>(lines: T[]): { lines: T[]; x
   const rightLines = lines.filter(l => l.x + l.w / 2 >= mid);
 
   if (leftLines.length >= 2 && rightLines.length >= 2) {
-    const isPriceOnly = (l: { text: string }) => /^[$€£¥]?\s*\d+(?:[.,]\d{1,2})?\s*$/.test(l.text.trim());
+    const isPriceOnly = (l: { text: string }) => new RegExp(`^[${CURRENCY_SYMBOLS}]?\\s*\\d+(?:[.,]\\d{1,2})?\\s*$`).test(l.text.trim());
     const leftPriceShare = leftLines.filter(isPriceOnly).length / leftLines.length;
     const rightPriceShare = rightLines.filter(isPriceOnly).length / rightLines.length;
     if (leftPriceShare >= 0.6 || rightPriceShare >= 0.6) {

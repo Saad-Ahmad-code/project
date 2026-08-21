@@ -1,6 +1,6 @@
 import { cleanDishName } from "./name-cleanup";
 import { correctOCRErrors } from "./data/ocr-corrections";
-import { normalizePrice, findPriceInWord } from "./price";
+import { normalizePrice, findPriceInWord, CURRENCY_SYMBOLS } from "./price";
 import { isNoiseLine, isDescriptionLine, hasSufficientRealWords, isFoodRelated } from "./validation";
 
 export const DISH_PREFIX_WORDS =
@@ -8,7 +8,7 @@ export const DISH_PREFIX_WORDS =
 
 export function splitMergedDishLine(name: string, trailingPrice?: number): { name: string; price?: number }[] | null {
   const m = name.match(
-    /^(.*?)\s+([$€£¥]\s*\d+(?:[.,]\d{1,2}|\s+\d{2})?|\d+[.,]\d{1,2}|\d+\s+\d{2}|\d{2,3})\s+([A-Za-z0-9$€£¥][A-Za-z0-9$€£¥&'-]*(\s+[A-Za-z0-9$€£¥][A-Za-z0-9$€£¥&'-]*)*)$/
+    new RegExp(`^(.*?)\\s+([${CURRENCY_SYMBOLS}]\\s*\\d+(?:[.,]\\d{1,2}|\\s+\\d{2})?|\\d+[.,]\\d{1,2}|\\d+\\s+\\d{2}|\\d{2,3})\\s+([A-Za-z0-9${CURRENCY_SYMBOLS}][A-Za-z0-9${CURRENCY_SYMBOLS}&'-]*(\\s+[A-Za-z0-9${CURRENCY_SYMBOLS}][A-Za-z0-9${CURRENCY_SYMBOLS}&'-]*)*)$`)
   );
   if (!m) return null;
   const firstRaw = m[1].trim();

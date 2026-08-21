@@ -6,6 +6,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { DishCard } from "@/components/dishes/DishCard";
+import { RegenerateCard } from "@/components/dishes/RegenerateCard";
 import { NutritionPanel } from "@/components/NutritionPanel";
 import { RecipePanel } from "@/components/RecipePanel";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -171,6 +172,44 @@ export default function ResultsPage() {
     );
   };
 
+  /** Regenerate AI descriptions for ALL dishes at once. */
+  const regenerateAllDescriptions = async () => {
+    let updated = 0;
+    for (const item of items) {
+      try {
+        detailsCache.current.delete(item.id);
+        const res = await fetchWithCsrf("/api/dishes/details", {
+          method: "POST",
+          body: JSON.stringify({
+            dishName: item.name,
+            id: item.id,
+            category: item.category,
+            origin: item.origin,
+            description: item.description || item.ai_description || undefined,
+            regenerate: true,
+          }),
+        });
+        const data = await res.json();
+        if (data.detailed_description) {
+          detailsCache.current.set(item.id, data as DishDetails);
+          setItems((prev) => prev.map((d) =>
+            d.id === item.id
+              ? { ...d, ai_description: typeof data.detailed_description === "string"
+                  ? (data.detailed_description as string).slice(0, 300)
+                  : "" }
+              : d
+          ));
+          updated++;
+        }
+      } catch { /* continue with next dish */ }
+    }
+    if (updated > 0) {
+      toast.success(`Regenerated ${updated} of ${items.length} descriptions`);
+    } else {
+      toast.error("Failed to regenerate any descriptions");
+    }
+  };
+
   // Debounce the active filter set so a rapid burst of pill toggles settles
   // into ONE filteredItems recomputation instead of one per click.
   const debouncedPrefs = useDebounce(dietPrefs, 150);
@@ -240,6 +279,14 @@ export default function ResultsPage() {
         onHide={() => setShowSuggestions(false)}
       />
 
+      {/* Regenerate Descriptions Card */}
+      <div className="mb-4">
+        <RegenerateCard
+          onRegenerateAll={regenerateAllDescriptions}
+          itemCount={items.length}
+        />
+      </div>
+
       {/* Dietary Preference Filter */}
       <DietaryFilter
         dietPrefs={dietPrefs}
@@ -270,6 +317,45 @@ export default function ResultsPage() {
               confidence={item.confidence}
               dietary_tags={item.dietary_tags}
               ai_description={item.ai_description}
+              onRegenerate={async () => {
+                // Force regenerate: clear cache, call API, update items array
+                // so the card shows the new description immediately.
+                detailsCache.current.delete(item.id);
+                setLoadingDetails(true);
+                setDishDetails(null);
+                try {
+                  const res = await fetchWithCsrf("/api/dishes/details", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      dishName: item.name,
+                      id: item.id,
+                      category: item.category,
+                      origin: item.origin,
+                      description: item.description || item.ai_description || undefined,
+                      regenerate: true,
+                    }),
+                  });
+                  const data = await res.json();
+                  if (data.error) throw new Error(data.error);
+                  if (data.detailed_description) {
+                    detailsCache.current.set(item.id, data as DishDetails);
+                    setDishDetails(data as DishDetails);
+                    // Update the items array so the card shows the new ai_description
+                    setItems((prev) => prev.map((d) =>
+                      d.id === item.id
+                        ? { ...d, ai_description: typeof data.detailed_description === "string"
+                            ? (data.detailed_description as string).slice(0, 300)
+                            : "" }
+                        : d
+                    ));
+                    toast.success("Description regenerated");
+                  }
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to regenerate description");
+                } finally {
+                  setLoadingDetails(false);
+                }
+              }}
             />
             <NutritionPanel dishName={item.name} />
             <RecipePanel dishName={item.name} />

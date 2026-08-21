@@ -65,8 +65,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const arrayBuffer = await imageFile.arrayBuffer();
+    let arrayBuffer = await imageFile.arrayBuffer();
     const userId = ((session?.user as Record<string, unknown>)?.id as string) || 'anonymous';
+
+    // Compress oversized images before OCR — Sharp resize is fast (~50ms)
+    // and dramatically speeds up Tesseract/Vision processing on large photos.
+    if (arrayBuffer.byteLength > 500_000) {
+      try {
+        const sharp = require('sharp');
+        const compressed = await sharp(Buffer.from(arrayBuffer))
+          .resize({ width: 1600, withoutEnlargement: true })
+          .jpeg({ quality: 82 })
+          .toBuffer();
+        arrayBuffer = compressed.buffer as ArrayBuffer;
+        logger.info(`[Scan] Compressed image: ${imageFile.size} -> ${arrayBuffer.byteLength} bytes`);
+      } catch {
+        // Fall through with original buffer — compression is best-effort
+      }
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -79,25 +95,23 @@ export async function POST(request: NextRequest) {
         };
         request.signal?.addEventListener('abort', onAbort, { once: true });
 
-const send = (event: string, data: unknown) => {
-           try { controller.enqueue(encoder.encode(sseEncode(event, data))); } catch (e) { logger.warn(`[Scan] SSE send failed: ${e}`); }
-         };
+        const send = (event: string, data: unknown) => {
+          try { controller.enqueue(encoder.encode(sseEncode(event, data))); } catch (e) { logger.warn(`[Scan] SSE send failed: ${e}`); }
+        };
 
         try {
           send('status', { status: 'uploading', progress: 5, message: 'Image received' });
 
-           // ── Step 1: Run OCR pipeline ──
-           send('status', { status: 'ocr_started', progress: 10, message: 'Starting OCR analysis…' });
-
-           const mode = request.nextUrl.searchParams.get('mode');
-           let ocrResult;
-           if (mode === 'offline') {
-             const { runOfflineOCRPipeline } = require('@/lib/ocr/local');
-             ocrResult = await runOfflineOCRPipeline(arrayBuffer, send);
-           } else {
-             const { runOCRPipeline } = require('@/lib/ocr/engine');
-             ocrResult = await runOCRPipeline(arrayBuffer, send);
-           }
+          // ── Step 1: Run OCR pipeline ──
+          const mode = request.nextUrl.searchParams.get('mode');
+          let ocrResult;
+          if (mode === 'offline') {
+            const { runOfflineOCRPipeline } = require('@/lib/ocr/local');
+            ocrResult = await runOfflineOCRPipeline(arrayBuffer, send);
+          } else {
+            const { runOCRPipeline } = require('@/lib/ocr/engine');
+            ocrResult = await runOCRPipeline(arrayBuffer, send);
+          }
 
           if (!ocrResult.items || ocrResult.items.length === 0) {
             send('error', { message: 'Could not identify any dishes from this image. Try a clearer photo.' });

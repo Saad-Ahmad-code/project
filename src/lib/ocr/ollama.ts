@@ -20,8 +20,9 @@
 //  Enabled in runLocalOCR unless OLLAMA_REFINE=0.
 // ═══════════════════════════════════════════════════════════════════
 
-import { isNoiseLine, CATEGORY_KEYWORDS } from "./local";
-import type { LocalOCRItem } from "./local";
+import { isNoiseLine } from "./validation";
+import { CATEGORY_KEYWORDS } from "./data/category-keywords";
+import type { LocalOCRItem } from "./parsing";
 import { OLLAMA_TIMEOUT_MS, MAX_RAW_TEXT } from "@/lib/config";
 
 export interface OllamaRefineOptions {
@@ -189,10 +190,9 @@ export function parseDishArray(text: string, rawText = ""): LocalOCRItem[] {
       const p = r.price.trim().replace(/,/g, "");
       if (/^\d+(?:\.\d{1,2})?$/.test(p)) price = parseFloat(p);
     }
-    // Unpriced model entries are unverifiable junk (venue titles, headers,
-    // hallucinated fragments) — the deterministic parsers only emit dishes
-    // with prices, so the model's list must too. Drop, don't keep.
-    if (price === undefined) continue;
+    // Unpriced entries are acceptable — single-word dishes like "Margherita"
+    // legitimately carry no price. The grounding gate + junk-name gate above
+    // already block venue titles/headers/hallucinations.
 
     const category =
       typeof r.category === "string" && r.category.trim() ? r.category.trim() : undefined;
@@ -417,13 +417,15 @@ ${rawText.slice(0, MAX_RAW_TEXT)}`;
     if (cleaned.length === 0) return items;
     if (cleaned.filter((i) => i.price !== undefined).length < pricedCount) return items;
 
-    // No-regression gate: EVERY dish the deterministic parsers found must
-    // survive in the model's list (fuzzy name match, OCR-error tolerant).
-    // A model that dropped a real dish or rewrote it into random words
-    // loses — keep the deterministic parse. This is what stops "random
-    // words as dish": the model can only ADD split rows and FIX names,
-    // never replace the known-good set.
-    if (!items.every((it) => cleaned.some((c) => namesMatch(it.name, c.name)))) return items;
+    // No-regression gate: EVERY PRICED dish the deterministic parsers found
+    // must survive in the model's list (fuzzy name match, OCR-error tolerant).
+    // A model that dropped a real priced dish or rewrote it into random words
+    // loses — keep the deterministic parse. Unpriced dishes are exempt (the
+    // model may legitimately omit a price-less item). This is what stops
+    // "random words as dish": the model can only ADD split rows and FIX
+    // names, never replace the known-good priced set.
+    const pricedItems = items.filter((it) => it.price !== undefined);
+    if (!pricedItems.every((it) => cleaned.some((c) => namesMatch(it.name, c.name)))) return items;
 
     return cleaned;
   } catch {

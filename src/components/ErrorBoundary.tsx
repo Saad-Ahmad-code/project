@@ -37,11 +37,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     // Log the error to our diagnostics backend
-    fetch("/api/diagnostics/report", {
+    fetch("/api/log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        error: error.message,
+        level: "error",
+        message: `ErrorBoundary caught: ${error.message}`,
+        source: "ErrorBoundary",
         context: { stack: error.stack, componentStack: errorInfo.componentStack },
       }),
     }).catch(() => {

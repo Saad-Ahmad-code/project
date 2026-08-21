@@ -222,6 +222,30 @@ Rules:
   }
 }
 
+/**
+ * Detect garbled OCR text — names with non-alpha noise, embedded prices,
+ * or other signs that the OCR struggled with decorative/stylized fonts.
+ * Returns true when the result quality is poor enough to warrant AI Vision.
+ */
+function isGarbledResult(result: OCRResult): boolean {
+  if (!result.items || result.items.length === 0) return true;
+
+  let garbledCount = 0;
+  for (const item of result.items) {
+    const name = item.name || '';
+    // Garbled signals: non-alpha characters in name, price embedded in name,
+    // very short names, or names that look like category headers
+    if (/[=|\\\/{}()[\]<>]/.test(name)) { garbledCount++; continue; }
+    if (/\d{2,}/.test(name) && !/^\d/.test(name)) { garbledCount++; continue; }
+    if (name.length < 3) { garbledCount++; continue; }
+    if (/^[A-Z]{3,}$/.test(name.trim())) { garbledCount++; continue; } // ALL CAPS header
+    if (/^\w+\s+(ais|yet|No)\b/.test(name)) { garbledCount++; continue; } // noise suffixes
+  }
+
+  // Escalate if >30% of items look garbled
+  return garbledCount / result.items.length > 0.3;
+}
+
 // ── Main orchestrator ──
 
 export async function runOCRPipeline(
@@ -237,41 +261,50 @@ export async function runOCRPipeline(
     return cached;
   }
 
-  const errors: string[] = [];
+  send('status', { status: 'ocr_started', progress: 10, message: 'Starting OCR analysis…' });
 
-  // Layer 1
-  try {
-    const result = await layer1TesseractJS(imageBuffer, send);
-    if (result && result.items.length >= 2) {
-      cacheSet(hash, result);
-      return result;
-    }
-    errors.push('Layer1: insufficient items');
-  } catch (e: any) { errors.push(`Layer1: ${e.message}`); }
+  // Run Tesseract and AI Vision in PARALLEL — whichever finishes first with
+  // good results wins. This cuts scan time from ~20-60s (sequential) to
+  // ~8-15s (whichever completes last is the only wait).
+  const tesseractPromise = layer1TesseractJS(imageBuffer, send).catch((e: any) => {
+    logger.warn(`[OCR] Tesseract layer failed: ${e.message?.slice(0, 100)}`);
+    return null as OCRResult | null;
+  });
 
-  // Layer 2
-  try {
-    const result = await layer2SharpTesseract(imageBuffer, send);
-    if (result && result.items.length >= 2) {
-      cacheSet(hash, result);
-      return result;
-    }
-    errors.push('Layer2: insufficient items');
-  } catch (e: any) { errors.push(`Layer2: ${e.message}`); }
+  const visionPromise = layer3AIVision(imageBuffer, send).catch((e: any) => {
+    logger.warn(`[OCR] Vision layer failed: ${e.message?.slice(0, 100)}`);
+    return null as OCRResult | null;
+  });
 
-  // Layer 3 (AI Vision — final escalation)
-  try {
-    const result = await layer3AIVision(imageBuffer, send);
-    if (result && result.items.length >= 1) {
-      cacheSet(hash, result);
-      return result;
-    }
-    errors.push('Layer3: no items');
-  } catch (e: any) { errors.push(`Layer3: ${e.message}`); }
+  // Fire both concurrently
+  const [tesseractResult, visionResult] = await Promise.all([tesseractPromise, visionPromise]);
 
-  // All layers failed — return best effort from layer 1 or empty
-  logger.error(`[OCR] All layers failed: ${errors.join('; ')}`);
-  send('error', { message: 'OCR processing failed: ' + errors.join('; ') });
+  // Prefer Tesseract if it got clean, non-garbled results (fast + local)
+  if (tesseractResult && tesseractResult.items.length >= 2 && !isGarbledResult(tesseractResult)) {
+    logger.info(`[OCR] Tesseract won: ${tesseractResult.items.length} items`);
+    cacheSet(hash, tesseractResult);
+    return tesseractResult;
+  }
+
+  // AI Vision result is always usable if it found anything (higher accuracy)
+  if (visionResult && visionResult.items.length >= 1) {
+    logger.info(`[OCR] Vision won: ${visionResult.items.length} items`);
+    cacheSet(hash, visionResult);
+    return visionResult;
+  }
+
+  // Both had issues — prefer whichever found more items
+  const fallback = (tesseractResult?.items.length ?? 0) >= (visionResult?.items.length ?? 0)
+    ? tesseractResult : visionResult;
+
+  if (fallback && fallback.items.length >= 1) {
+    logger.info(`[OCR] Fallback: ${fallback.layer} with ${fallback.items.length} items`);
+    cacheSet(hash, fallback);
+    return fallback;
+  }
+
+  logger.error(`[OCR] Both layers failed — Tesseract: ${tesseractResult?.items.length ?? 0}, Vision: ${visionResult?.items.length ?? 0}`);
+  send('error', { message: 'OCR processing failed — could not identify any dishes' });
 
   return { items: [], raw_text: '', layer: 'failed', confidence: 0 };
 }

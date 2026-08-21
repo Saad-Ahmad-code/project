@@ -18,6 +18,8 @@
 //  standalone and in tests.
 // ═══════════════════════════════════════════════════════════════════
 
+import { CURRENCY_SYMBOLS } from "./price";
+
 export type CleanLineKind = "dish" | "price" | "header" | "noise";
 
 export interface CleanLine {
@@ -36,8 +38,8 @@ export interface CleanResult {
   merged: number;
 }
 
-const PRICE_ONLY = /^[$€£¥]?\s*\d{1,4}(?:[.,]\d{1,2})?[\s.]*$/;
-const HAS_PRICE = /[$€£¥]\s*\d|\b\d{1,3}[.,]\d{1,2}\b/;
+const PRICE_ONLY = new RegExp(`^[${CURRENCY_SYMBOLS}]?\\s*\\d{1,4}(?:[.,]\\d{1,2})?[\\s.]*$`);
+const HAS_PRICE = new RegExp(`[${CURRENCY_SYMBOLS}]\\s*\\d|\\b\\d{1,3}[.,]\\d{1,2}\\b`);
 
 // ── Noise detectors (a line matching ANY of these is dropped) ──
 
@@ -60,7 +62,7 @@ const DELIVERY =
   /(uber eats|doordash|grubhub|order online|online order|delivery|take[- ]?out|curbside|pick[- ]?up|reservation|book a table|to[- ]?go|gift card|gift certificate)/i;
 /** Legal / allergy boilerplate. */
 const LEGAL =
-  /(all rights reserved|may contain|allergen|please inform|for allergy|gluten[- ]free option|consuming raw|undercooked|copyright)/i;
+  /(all rights reserved|may contain|allergen|please inform|for allergy|gluten[- ]?free option|consuming raw|undercooked|copyright)/i;
 /** Page markers. */
 const PAGE = /\bpage\s*\d+\s*(of|\/|-)\s*\d+\b|^\s*p\.?\s*\d+\s*$/i;
 /** Social media / web. */
@@ -139,12 +141,42 @@ function isAttachableName(text: string): boolean {
   return classifyLine(t) !== "noise";
 }
 
+/** Pre-processing substitutions applied to every raw OCR line BEFORE classification.
+ *  Ordered by frequency of OCR misreads for currency symbols.
+ *  — き (U+304D hiragana ki) is a frequent Tesseract misread of ₹ (U+20B9),
+ *    so き250 → ₹250 lets every downstream price regex recognise the token.
+ *  — £, ¥, g, Z are also common misreads of ₹ (especially with brightness
+ *    preprocessing or dark background on light text). We only substitute
+ *    these when they appear immediately before digits so venue names with
+ *    "£" aren't corrupted. */
+const CURRENCY_SUBSTITUTIONS: [RegExp, string][] = [
+  [/\u304D/g, "₹"],   // き → ₹  (Tesseract hiragana misread of rupee)
+  [/\u304B/g, "₹"],   // か → ₹  (alternate hiragana misread)
+  [/(£)(?=\d)/g, "₹"], // £ before digits → ₹ (dark-bg brightness misread)
+  [/(¥)(?=\d)/g, "₹"], // ¥ before digits → ₹
+  [/(\bg)(?=\d)/g, "₹"], // standalone g before digits → ₹ (e.g. "g100")
+  [/(\bZ)(?=\d)/g, "₹"], // standalone Z before digits → ₹ (e.g. "Z90")
+  [/(\bF)(?=\d)/g, "₹"], // standalone F before digits → ₹ (threshold binarisation misread)
+  [/(\bE)(?=\d)/g, "₹"], // standalone E before digits → ₹ (e.g. "E100")
+  [/(#(?:₹)?)(?=\d)/g, "₹"], // # before digits → ₹ (hash glyph misread)
+];
+
+function normalizeCurrencySymbols(text: string): string {
+  for (const [pattern, replacement] of CURRENCY_SUBSTITUTIONS) {
+    text = text.replace(pattern, replacement);
+  }
+  return text;
+}
+
 /**
  * Clean raw OCR text: classify → drop noise → merge split prices →
  * rejoin in reading order.
  */
 export function cleanOCRText(rawText: string): CleanResult {
-  const rawLines = rawText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const rawLines = rawText
+    .split(/\r?\n/)
+    .map((l) => normalizeCurrencySymbols(l.trim()))
+    .filter(Boolean);
   const dropped: string[] = [];
   const classified: Array<CleanLine & { _origIndex: number }> = [];
   const isFirstLineAllCapsVenue =

@@ -1,4 +1,11 @@
 export const OCR_CORRECTIONS: [RegExp, string][] = [
+  // Currency misreads: various glyphs Tesseract reads instead of ₹ (U+20B9)
+  // on menus with dark backgrounds / orange currency symbols.
+  [/き/g, "₹"], [/か/g, "₹"],
+  [/£(?=\d)/g, "₹"], [/¥(?=\d)/g, "₹"],
+  [/\bg(?=\d)/g, "₹"], [/\bZ(?=\d)/g, "₹"],
+  [/\bF(?=\d)/g, "₹"], [/\bE(?=\d)/g, "₹"],
+  [/#(?=\d)/g, "₹"],
   [/pizz[saz]/gi, "Pizza"], [/pizz[aas]/gi, "Pizza"],
   [/ch[ie]ken/gi, "Chicken"], [/chl[ck]en/gi, "Chicken"], [/chlcken/gi, "Chicken"], [/bvrger/gi, "Burger"], [/bvrg[ae]r/gi, "Burger"],
   [/sandwich/gi, "Sandwich"], [/sandw[ei]ch/gi, "Sandwich"], [/sandwish/gi, "Sandwich"],

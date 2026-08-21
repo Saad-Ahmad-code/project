@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Too many requests. Wait a minute and try again." }, { status: 429 });
     }
 
-    const { dishName, category, origin, description, id } = await request.json();
+    const { dishName, category, origin, description, id, regenerate } = await request.json();
 
     if (!dishName?.trim()) {
       return NextResponse.json({ error: "Dish name is required" }, { status: 400 });
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     // Persistent cache: if this dish's details were already generated
     // (and stored on its doc), return them — generate once ever, not once
     // per server session or per click.
-    if (id) {
+    if (id && !regenerate) {
       try {
         const dish = await db.findById("dishes", id);
         const existing = (dish as Record<string, unknown> | null)?.ai_details as DishDetailsData | undefined;

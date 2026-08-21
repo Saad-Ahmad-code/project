@@ -9,7 +9,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { execSync } from 'child_process';
+import { execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { logger } from '@/lib/logger';
@@ -17,8 +17,8 @@ import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { logError } from '@/lib/error-handler';
 import { sanitizeErrorMessage } from '@/lib/utils';
 import { requireCsrf } from '@/lib/csrf';
+import { resolvePythonCmd } from '@/lib/ocr/candidates';
 
-const PYTHON = path.resolve(process.cwd(), '.venv/Scripts/python.exe');
 const SCRIPT = path.resolve(process.cwd(), 'src/scripts/food_classifier.py');
 const TMP_DIR = path.resolve(process.cwd(), '.tmp');
 
@@ -48,15 +48,22 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     fs.writeFileSync(tmpPath, buffer);
 
-    // Run classifier
-    const output = execSync(
-      `"${PYTHON}" "${SCRIPT}" "${tmpPath}"`,
-      {
-        encoding: 'utf-8',
-        timeout: 30000,
-        env: { ...process.env, PYTHONPATH: '' },
-      }
-    );
+    // Run classifier (async)
+    const output = await new Promise<string>((resolve, reject) => {
+      execFile(
+        resolvePythonCmd(),
+        [SCRIPT, tmpPath],
+        {
+          encoding: 'utf-8',
+          timeout: 30000,
+          env: { ...process.env, PYTHONPATH: '' },
+        },
+        (error, stdout, stderr) => {
+          if (error) reject(error);
+          else resolve(stdout);
+        }
+      );
+    });
 
     // Clean up temp file
     try { fs.unlinkSync(tmpPath); } catch {}

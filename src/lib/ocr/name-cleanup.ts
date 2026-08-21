@@ -1,4 +1,5 @@
 import { OCR_CORRECTIONS } from "./data/ocr-corrections";
+import { CURRENCY_SYMBOLS } from "./price";
 
 export function cleanDishName(raw: string): string {
   let name = raw.trim();
@@ -19,7 +20,7 @@ export function cleanDishName(raw: string): string {
 
   name = name.replace(/^\d+[.)\s]+/, "").trim();
 
-  name = name.replace(/^[$€£¥RsSs.]*\s*\d{1,3}(?:[.,]\s?\d{1,2}|\s+\d{2})\s+/, "").trim();
+  name = name.replace(new RegExp(`^[${CURRENCY_SYMBOLS}RsSs.]*\\s*\\d{1,3}(?:[.,]\\s?\\d{1,2}|\\s+\\d{2})\\s+`), "").trim();
 
   name = name.replace(/[;,]+$/, "").trim();
 
