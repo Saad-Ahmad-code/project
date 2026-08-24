@@ -52,8 +52,20 @@ export default function ScanPage() {
   const [barcodeResult, setBarcodeResult] = useState<{ name: string; calories?: number; protein_g?: number; fat_g?: number; carbs_g?: number; sugars_g?: number; image_url?: string; nutri_score?: string } | null>(null);
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
-  // Camera capture state (mobile)
+  // Camera capture state
   const [showCamera, setShowCamera] = useState(false);
+  // Show the camera button only when the device actually HAS a camera API
+  // (desktop webcams included) — previously it was hidden via a CSS media
+  // query on viewports ≥640px, so desktop users never saw it at all.
+  const [hasCameraApi, setHasCameraApi] = useState(false);
+  useEffect(() => {
+    const nav = navigator as any;
+    setHasCameraApi(
+      !!navigator.mediaDevices?.getUserMedia ||
+        typeof nav.webkitGetUserMedia === "function" ||
+        typeof nav.mozGetUserMedia === "function"
+    );
+  }, []);
 
   useEffect(() => {
     if (resultId && status === "complete") {
@@ -239,14 +251,16 @@ export default function ScanPage() {
             >
               Choose File
             </Button>
-            {/* Camera button — visible on mobile (touch devices) only */}
-            <Button
-              onClick={() => setShowCamera(true)}
-              variant="outline"
-              className="sm:w-auto w-full mobile-only"
-            >
-              Use Camera
-            </Button>
+            {/* Camera button — shown whenever the device exposes a camera API */}
+            {hasCameraApi && (
+              <Button
+                onClick={() => setShowCamera(true)}
+                variant="outline"
+                className="sm:w-auto w-full"
+              >
+                Use Camera
+              </Button>
+            )}
           </div>
         </motion.div>
       )}

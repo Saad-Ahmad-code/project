@@ -105,16 +105,6 @@
   }
 }
 
-/* Mobile-only: hide on desktop (>= 640px / sm breakpoint) */
-.mobile-only {
-  display: block;
-}
-@media (min-width: 640px) {
-  .mobile-only {
-    display: none;
-  }
-}
-
 /* Progressive image loading — subtle pulse while the photo streams in */
 .progressive-image-shimmer {
   background: linear-gradient(
