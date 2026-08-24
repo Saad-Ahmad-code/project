@@ -92,26 +92,25 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'clear-failed') {
-      const jobs = await (await import('@/lib/storage')).db.findAll<any>('agent_log');
-      let cleared = 0;
+      // findBy (no limit) — findAll's 50-doc default hides older jobs.
+      const { db } = await import('@/lib/storage');
+      const jobs = db.findBy<any>('agent_log', { status: 'failed' });
       for (const job of jobs) {
-        if (job.status === 'failed') {
-          updateJob(job.id, { status: 'queued', retries: 0, error: '' });
-          cleared++;
-        }
+        updateJob(job._id || job.id, { status: 'queued', retries: 0, error: '' });
       }
-      return NextResponse.json({ message: `Reset ${cleared} failed jobs`, cleared });
+      return NextResponse.json({ message: `Reset ${jobs.length} failed jobs`, cleared: jobs.length });
     }
 
     if (action === 'clear-all') {
       const { db } = await import('@/lib/storage');
-      const jobs = db.findAll<any>('agent_log');
+      const finished = [
+        ...db.findBy<any>('agent_log', { status: 'completed' }),
+        ...db.findBy<any>('agent_log', { status: 'failed' }),
+      ];
       let deleted = 0;
-      for (const job of jobs) {
-        if (job.status === 'completed' || job.status === 'failed') {
-          db.deleteOne('agent_log', { id: job.id });
-          deleted++;
-        }
+      for (const job of finished) {
+        db.deleteOne('agent_log', { id: job.id ?? job._id });
+        deleted++;
       }
       return NextResponse.json({ message: `Deleted ${deleted} old jobs`, deleted });
     }

@@ -84,14 +84,18 @@ export function createJob(scanId: string, itemsCount: number): AgentJob {
 
 export function getNextJob(): AgentJob | null {
   try {
-    const jobs = db.findAll<AgentJobDoc>('agent_log');
+    // Query by status — NOT findAll(), whose default limit=50 hides every
+    // job past the first 50 docs once early jobs complete (the bug that left
+    // dozens of scans stuck "processing").
+    const pending = db.findBy<AgentJobDoc>('agent_log', { status: 'queued' });
     const now = Date.now();
-    const pending = jobs
-      .filter(j => j.status === 'queued' && (!j.retry_at || new Date(j.retry_at).getTime() <= now))
+    const ready = pending
+      .filter(j => !j.retry_at || new Date(j.retry_at).getTime() <= now)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-    return pending[0] ? normalizeJob(pending[0]) : null;
-  } catch {
+    return ready[0] ? normalizeJob(ready[0]) : null;
+  } catch (err: any) {
+    logger.warn(`[AgentQueue] getNextJob failed: ${err.message}`);
     return null;
   }
 }
@@ -100,8 +104,8 @@ export function getNextJob(): AgentJob | null {
 
 export function getJobByScanId(scanId: string): AgentJob | null {
   try {
-    const jobs = db.findAll<AgentJobDoc>('agent_log');
-    return normalizeJob(jobs.find(j => j.scan_id === scanId) as AgentJobDoc) || null;
+    const jobs = db.findBy<AgentJobDoc>('agent_log', { scan_id: scanId });
+    return jobs[0] ? normalizeJob(jobs[0]) : null;
   } catch {
     return null;
   }
@@ -174,18 +178,22 @@ export function retryJob(jobIdToRetry: string): { ok: boolean; message: string }
 
 export function getQueueStats() {
   try {
-    const jobs = db.findAll<AgentJobDoc>('agent_log');
-    const dlq = db.findAll<AgentLogDlqDoc>('agent_log_dlq');
+    // Counted per status — findAll()'s 50-doc default would undercount.
+    const total = db.count('agent_log');
+    const byStatus = (status: string) => db.findBy<AgentJobDoc>('agent_log', { status }).length;
+    const dlq = db.count('agent_log_dlq');
+    const lastProcessed = db
+      .findBy<AgentJobDoc>('agent_log', { status: 'completed' })
+      .filter(j => j.completed_at)
+      .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())[0] || null;
     return {
-      total: jobs.length,
-      queued: jobs.filter(j => j.status === 'queued').length,
-      processing: jobs.filter(j => j.status === 'processing').length,
-      completed: jobs.filter(j => j.status === 'completed').length,
-      failed: jobs.filter(j => j.status === 'failed').length,
-      dead_letter: dlq.length,
-      last_processed: jobs
-        .filter(j => j.completed_at)
-        .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())[0] || null,
+      total,
+      queued: byStatus('queued'),
+      processing: byStatus('processing'),
+      completed: byStatus('completed'),
+      failed: byStatus('failed'),
+      dead_letter: dlq,
+      last_processed: lastProcessed,
     };
   } catch {
     return { total: 0, queued: 0, processing: 0, completed: 0, failed: 0, dead_letter: 0, last_processed: null };
@@ -210,8 +218,7 @@ export function startWorker(): void {
 
   // Re-claim stale claims from a previous server process (crash/restart).
   try {
-    const jobs = db.findAll<AgentJobDoc>('agent_log');
-    const stale = jobs.filter(j => j.status === 'processing');
+    const stale = db.findBy<AgentJobDoc>('agent_log', { status: 'processing' });
     for (const job of stale) {
       updateJob(job._id, { status: 'queued', error: 'Re-queued: server restarted mid-job' });
     }
