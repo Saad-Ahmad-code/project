@@ -42,9 +42,11 @@ export async function GET() {
     }
     const dailyVolume = Object.entries(dailyCounts).map(([date, count]) => ({ date, count }));
 
-    // Recent scans for the table
+    // Recent scans for the table — sort ALL scans newest-first, then take 10.
+    // (findAll(n) slices the first n docs in file order = oldest, so sorting
+    // after slicing showed the ten OLDEST scans as "recent".)
     const recentScans = db
-      .findAll<any>("scans", 10)
+      .findBy<any>("scans", {})
       .sort((a: any, b: any) => {
         const aDate = a.created_at || a.createdAt || "";
         const bDate = b.created_at || b.createdAt || "";

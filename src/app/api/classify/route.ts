@@ -48,33 +48,36 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     fs.writeFileSync(tmpPath, buffer);
 
-    // Run classifier (async)
-    const output = await new Promise<string>((resolve, reject) => {
-      execFile(
-        resolvePythonCmd(),
-        [SCRIPT, tmpPath],
-        {
-          encoding: 'utf-8',
-          timeout: 30000,
-          env: { ...process.env, PYTHONPATH: '' },
-        },
-        (error, stdout, stderr) => {
-          if (error) reject(error);
-          else resolve(stdout);
-        }
-      );
-    });
+    try {
+      // Run classifier (async)
+      const output = await new Promise<string>((resolve, reject) => {
+        execFile(
+          resolvePythonCmd(),
+          [SCRIPT, tmpPath],
+          {
+            encoding: 'utf-8',
+            timeout: 30000,
+            env: { ...process.env, PYTHONPATH: '' },
+          },
+          (error, stdout, stderr) => {
+            if (error) reject(error);
+            else resolve(stdout);
+          }
+        );
+      });
 
-    // Clean up temp file
-    try { fs.unlinkSync(tmpPath); } catch {}
+      const result = JSON.parse(output.trim());
 
-    const result = JSON.parse(output.trim());
+      if (result.error) {
+        return Response.json({ error: result.error, dishes: [] }, { status: 500 });
+      }
 
-    if (result.error) {
-      return Response.json({ error: result.error, dishes: [] }, { status: 500 });
+      return Response.json({ dishes: result.dishes || [] });
+    } finally {
+      // Clean up temp file even when the classifier fails — previously the
+      // unlink sat after the await, so every error leaked an image to .tmp.
+      try { fs.unlinkSync(tmpPath); } catch {}
     }
-
-    return Response.json({ dishes: result.dishes || [] });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[Classify] API error: ${message}`);

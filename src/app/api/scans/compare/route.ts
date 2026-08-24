@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/storage";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    // Consistent with the other AI/state-changing routes: cap per-IP.
+    if (!checkRateLimit(getClientIp(request), 10, 60_000, "compare")) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const { scanId, targetId } = await request.json();
 
     if (!scanId || !targetId) {

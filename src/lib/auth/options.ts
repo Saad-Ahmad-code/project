@@ -6,6 +6,10 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
+  // Explicit secret: accept either spelling of the env var. Without it,
+  // next-auth v4 generates an ephemeral dev secret that changes on every
+  // server restart (invalidating all sessions) and throws NO_SECRET in prod.
+  secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET,
   providers: [
     CredentialsProvider({
       name: "Credentials",

@@ -15,6 +15,11 @@ export function usePhotoPrefetch(
   concurrency = 2
 ) {
   const startedRef = useRef(false);
+  // Keep the latest names in a ref so the effect doesn't re-run (and reset
+  // its start delay) every time the parent's poll cycle produces a new array
+  // with identical contents.
+  const namesRef = useRef(dishNames);
+  namesRef.current = dishNames;
 
   useEffect(() => {
     if (!enabled || startedRef.current || dishNames.length === 0) return;
@@ -25,7 +30,7 @@ export function usePhotoPrefetch(
       if (startedRef.current) return;
       startedRef.current = true;
 
-      const queue = dishNames.slice(0, limit);
+      const queue = namesRef.current.slice(0, limit);
       let active = 0;
 
       const pump = () => {
@@ -45,5 +50,5 @@ export function usePhotoPrefetch(
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [enabled, dishNames, limit, concurrency]);
+  }, [enabled, limit, concurrency]);
 }

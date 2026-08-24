@@ -14,6 +14,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth/options';
 import { getQueueStats, getNextJob, processJob, updateJob, retryJob } from '@/lib/agent/queue';
 import { checkDatabaseConnection } from '@/lib/diagnostics';
+import { requireCsrf } from '@/lib/csrf';
 
 async function requireAdmin(): Promise<boolean> {
   try {
@@ -54,6 +55,9 @@ export async function POST(request: NextRequest) {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const csrfError = requireCsrf(request);
+  if (csrfError) return csrfError;
 
   try {
     const body = await request.json().catch(() => ({}));

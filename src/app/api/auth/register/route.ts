@@ -4,9 +4,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { requireCsrf } from "@/lib/csrf";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    // Bcrypt hashing is deliberately expensive — cap attempts per IP so
+    // registration can't be used to burn CPU or spam user rows.
+    if (!checkRateLimit(getClientIp(request), 5, 300_000, "auth")) {
+      return NextResponse.json(
+        { error: "Too many registration attempts. Try again later." },
+        { status: 429 }
+      );
+    }
+
     const csrfError = requireCsrf(request);
     if (csrfError) return csrfError;
 
